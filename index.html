@@ -1,0 +1,2093 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>SolarOps</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: fixed left rail (nav + tools) and a scrolling work area. Light-only by design: a daytime operations console. */
+:root {
+  color-scheme: light;
+  --bg: #f3f5f4;          /* cool neutral with a touch of green */
+  --surface: #ffffff;
+  --surface-2: #f8faf9;
+  --ink: #1b2420;
+  --ink-2: #4b5651;
+  --ink-3: #74807a;
+  --line: #e1e6e3;
+  --line-2: #ccd4d0;
+  --accent: #1f5f3f;      /* deep forest green */
+  --accent-ink: #ffffff;
+  --accent-soft: #e4efe8;
+  --good: #1e8a4c; --good-soft: #e3f3e9;
+  --warn: #b7791f; --warn-soft: #fbf1dc;
+  --crit: #c23b3b; --crit-soft: #fbe6e6;
+  --info: #3b6ea8; --info-soft: #e5eef8;
+  --actual: #1f5f3f;
+  --expected: #8a949e;
+  --band-under: rgba(183,121,31,0.14);
+  --band-out: rgba(194,59,59,0.14);
+  --band-data: rgba(59,110,168,0.12);
+  --f-body: "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --f-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  --r: 10px;
+  --shadow: 0 1px 2px rgba(27,36,32,0.05), 0 6px 20px rgba(27,36,32,0.06);
+}
+* { box-sizing: border-box; }
+html, body { height: 100%; }
+body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--f-body); font-size: 14px; line-height: 1.5; }
+h1, h2, h3, h4 { margin: 0; font-weight: 600; letter-spacing: -0.01em; text-wrap: balance; }
+h1 { font-size: 1.35rem; } h2 { font-size: 1.05rem; } h3 { font-size: 0.95rem; }
+p { margin: 0; }
+button, input, select, textarea { font: inherit; color: inherit; }
+button { cursor: pointer; }
+.mono { font-family: var(--f-mono); font-variant-numeric: tabular-nums; }
+.num { font-variant-numeric: tabular-nums; }
+.muted { color: var(--ink-2); } .faint { color: var(--ink-3); }
+.small { font-size: 0.8rem; }
+.eyebrow { font-size: 0.7rem; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-3); }
+a { color: var(--accent); }
+
+/* ---------- app frame ---------- */
+#root { height: 100%; }
+.app { display: grid; grid-template-columns: 232px minmax(0, 1fr); height: 100%; }
+.rail { background: var(--surface); border-right: 1px solid var(--line); display: flex; flex-direction: column; gap: 18px;
+  padding-block: 18px 16px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: 12px; overflow-y: auto; }
+.brand { display: flex; align-items: center; gap: 10px; padding: 0 6px; }
+.brand .mark { width: 28px; height: 28px; border-radius: 8px; background: var(--accent); display: grid; place-items: center; }
+.brand .word { font-weight: 700; font-size: 1.05rem; letter-spacing: -0.02em; }
+.brand .word span { color: var(--accent); }
+.nav { display: grid; gap: 2px; }
+.nav button { display: flex; align-items: center; gap: 10px; width: 100%; text-align: left; padding: 8px 10px; border: 0; border-radius: 8px; background: transparent; color: var(--ink-2); font-weight: 500; }
+.nav button:hover { background: var(--surface-2); color: var(--ink); }
+.nav button[aria-current="page"] { background: var(--accent-soft); color: var(--accent); }
+.nav .count { margin-left: auto; font-size: 0.72rem; font-family: var(--f-mono); background: var(--surface-2); border: 1px solid var(--line); border-radius: 999px; padding: 0 7px; }
+.nav button[aria-current="page"] .count { background: var(--surface); }
+.nav-sites { display: grid; gap: 1px; padding-left: 6px; }
+.nav-sites button { padding: 5px 10px; font-size: 0.82rem; font-weight: 400; }
+.dot { width: 8px; height: 8px; border-radius: 50%; flex: none; background: var(--line-2); }
+.dot.good { background: var(--good); } .dot.warn { background: var(--warn); } .dot.crit { background: var(--crit); } .dot.info { background: var(--info); } .dot.neutral { background: var(--ink-3); }
+.rail .spacer { flex: 1; }
+.demo-badge { font-size: 0.7rem; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--warn); background: var(--warn-soft); border-radius: 6px; padding: 6px 8px; text-align: center; }
+
+.main { min-width: 0; display: flex; flex-direction: column; height: 100%; overflow: hidden; }
+.topbar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px 16px; background: var(--surface); border-bottom: 1px solid var(--line);
+  padding-block: 12px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+.topbar .crumbs { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.topbar .crumbs .sep { color: var(--line-2); }
+.content { flex: 1; overflow-y: auto; padding-block: 20px 48px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+.content > * + * { margin-top: 18px; }
+.stack > * + * { margin-top: 18px; }
+
+/* ---------- controls ---------- */
+.seg { display: inline-flex; border: 1px solid var(--line-2); border-radius: 8px; overflow: hidden; background: var(--surface); }
+.seg button { border: 0; background: transparent; padding: 6px 12px; font-size: 0.82rem; font-weight: 500; color: var(--ink-2); }
+.seg button + button { border-left: 1px solid var(--line); }
+.seg button[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); }
+.btn { display: inline-flex; align-items: center; gap: 6px; padding: 7px 12px; border-radius: 8px; border: 1px solid var(--line-2); background: var(--surface); font-weight: 500; font-size: 0.85rem; white-space: nowrap; }
+.btn:hover { background: var(--surface-2); }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.btn.primary:hover { filter: brightness(1.08); }
+.btn.danger { color: var(--crit); border-color: var(--crit); background: var(--surface); }
+.btn.sm { padding: 4px 9px; font-size: 0.78rem; }
+.btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.btn:focus-visible, .seg button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible, .nav button:focus-visible, tr[tabindex]:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+input[type="text"], input[type="number"], input[type="search"], select, textarea { width: 100%; padding: 7px 10px; border: 1px solid var(--line-2); border-radius: 8px; background: var(--surface); }
+textarea { min-height: 90px; resize: vertical; font-family: var(--f-mono); font-size: 0.8rem; }
+label.field { display: grid; gap: 4px; font-size: 0.8rem; font-weight: 500; color: var(--ink-2); }
+.fields { display: grid; gap: 12px; }
+.fields.two { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+
+/* ---------- cards & KPIs ---------- */
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); padding: 16px; min-width: 0; }
+.card-head { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 6px 12px; margin-bottom: 12px; }
+.kpis { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 10px; }
+.kpi { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); padding: 12px 14px; display: grid; gap: 2px; min-width: 0; }
+.kpi .v { font-family: var(--f-mono); font-size: 1.35rem; font-weight: 500; font-variant-numeric: tabular-nums; }
+.kpi .v.crit { color: var(--crit); } .kpi .v.warn { color: var(--warn); }
+.kpi .s { font-size: 0.74rem; color: var(--ink-3); }
+.grid-2 { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr); gap: 18px; align-items: start; }
+.grid-3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+
+/* ---------- pills ---------- */
+.pill { display: inline-flex; align-items: center; gap: 5px; padding: 2px 8px; border-radius: 999px; font-size: 0.74rem; font-weight: 600; white-space: nowrap; }
+.pill.good { background: var(--good-soft); color: var(--good); }
+.pill.warn { background: var(--warn-soft); color: var(--warn); }
+.pill.crit { background: var(--crit-soft); color: var(--crit); }
+.pill.info { background: var(--info-soft); color: var(--info); }
+.pill.neutral { background: var(--surface-2); color: var(--ink-2); border: 1px solid var(--line); }
+.pill.rank { background: var(--ink); color: #fff; font-family: var(--f-mono); }
+
+/* ---------- tables ---------- */
+.table-wrap { overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; font-size: 0.86rem; }
+th { text-align: left; font-size: 0.7rem; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink-3); padding: 8px 10px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+th.sortable { cursor: pointer; user-select: none; } th.sortable:hover { color: var(--ink); }
+td { padding: 10px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+tbody tr:last-child td { border-bottom: 0; }
+td.r, th.r { text-align: right; }
+tbody tr.row-link { cursor: pointer; } tbody tr.row-link:hover td { background: var(--surface-2); }
+.cell-title { font-weight: 500; } .cell-sub { font-size: 0.76rem; color: var(--ink-3); }
+
+/* ---------- attention list ---------- */
+.attn { display: grid; gap: 8px; }
+.attn-item { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 4px 12px; align-items: center; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface-2); }
+.attn-item .title { font-weight: 500; }
+.attn-item .meta { font-size: 0.78rem; color: var(--ink-2); display: flex; flex-wrap: wrap; gap: 4px 10px; }
+.attn-item .money { font-family: var(--f-mono); font-weight: 500; text-align: right; }
+
+/* ---------- charts ---------- */
+.chart { position: relative; width: 100%; }
+.chart svg { display: block; width: 100%; height: auto; overflow: visible; }
+.chart .tip { position: absolute; top: 0; pointer-events: none; background: var(--ink); color: #fff; border-radius: 8px; padding: 8px 10px; font-size: 0.76rem; line-height: 1.4; white-space: nowrap; box-shadow: var(--shadow); z-index: 2; }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 0.78rem; color: var(--ink-2); margin-top: 8px; }
+.legend span { display: inline-flex; align-items: center; gap: 6px; }
+.sw { width: 16px; border-top: 2px solid; display: inline-block; } .sw.dash { border-top-style: dashed; }
+.sw.box { width: 12px; height: 12px; border: 0; border-radius: 2px; }
+
+/* ---------- insight ---------- */
+.insight { border-left: 4px solid var(--accent); }
+.insight.warn { border-left-color: var(--warn); } .insight.crit { border-left-color: var(--crit); } .insight.info { border-left-color: var(--info); } .insight.good { border-left-color: var(--good); }
+.insight-row { display: grid; grid-template-columns: 150px minmax(0, 1fr); gap: 6px 16px; padding: 10px 0; border-top: 1px solid var(--line); }
+.insight-row:first-of-type { border-top: 0; }
+.insight-row .k { font-size: 0.7rem; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-3); padding-top: 3px; }
+.insight-row ul { margin: 0; padding-left: 18px; } .insight-row li + li { margin-top: 2px; }
+.insight-row .v { max-width: 72ch; }
+
+/* ---------- tabs ---------- */
+.tabs { display: flex; flex-wrap: wrap; gap: 4px; border-bottom: 1px solid var(--line); }
+.tabs button { border: 0; background: transparent; padding: 8px 12px; font-weight: 500; color: var(--ink-2); border-bottom: 2px solid transparent; margin-bottom: -1px; }
+.tabs button[aria-selected="true"] { color: var(--accent); border-bottom-color: var(--accent); }
+.tabs .count { font-family: var(--f-mono); font-size: 0.72rem; color: var(--ink-3); margin-left: 4px; }
+
+/* ---------- dialogs / drawer ---------- */
+.overlay { position: fixed; inset: 0; background: rgba(27,36,32,0.38); display: grid; place-items: center; z-index: 50; padding: 16px; }
+.dialog { background: var(--surface); border-radius: 12px; box-shadow: var(--shadow); width: min(640px, 100%); max-height: calc(100vh - 32px); overflow-y: auto; padding: 20px; display: grid; gap: 14px; }
+.dialog.wide { width: min(860px, 100%); }
+.drawer { position: fixed; top: 0; right: 0; bottom: 0; width: min(520px, 100%); background: var(--surface); box-shadow: var(--shadow); z-index: 50; overflow-y: auto; padding: 20px; padding-right: max(20px, env(safe-area-inset-right, 0px)); display: grid; gap: 14px; align-content: start; border-left: 1px solid var(--line); }
+.dialog-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+.x { border: 0; background: transparent; font-size: 1.2rem; line-height: 1; color: var(--ink-3); padding: 2px 6px; border-radius: 6px; } .x:hover { background: var(--surface-2); color: var(--ink); }
+.actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
+.notes { display: grid; gap: 8px; }
+.note { background: var(--surface-2); border-radius: 8px; padding: 8px 10px; font-size: 0.84rem; }
+.note .d { font-family: var(--f-mono); font-size: 0.72rem; color: var(--ink-3); }
+.callout { padding: 10px 12px; border-radius: 8px; font-size: 0.84rem; }
+.callout.warn { background: var(--warn-soft); color: #6b4a0e; } .callout.crit { background: var(--crit-soft); color: #7a2323; } .callout.info { background: var(--info-soft); color: #234a78; } .callout.good { background: var(--good-soft); color: #175c34; }
+.pre { font-family: var(--f-mono); font-size: 0.76rem; background: var(--surface-2); border: 1px solid var(--line); border-radius: 8px; padding: 10px; overflow-x: auto; white-space: pre; }
+.toasts { position: fixed; bottom: 16px; right: max(16px, env(safe-area-inset-right, 0px)); display: grid; gap: 8px; z-index: 60; }
+.toast { background: var(--ink); color: #fff; padding: 10px 14px; border-radius: 8px; font-size: 0.84rem; box-shadow: var(--shadow); display: flex; gap: 12px; align-items: center; }
+.toast button { background: transparent; border: 0; color: #9fd8b8; font-weight: 600; }
+.empty { padding: 28px 16px; text-align: center; color: var(--ink-3); border: 1px dashed var(--line-2); border-radius: 8px; }
+.kv { display: grid; grid-template-columns: auto 1fr; gap: 4px 14px; font-size: 0.84rem; } .kv dt { color: var(--ink-3); } .kv dd { margin: 0; }
+.site-head { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: flex-start; gap: 12px; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 0.82rem; color: var(--ink-2); }
+
+/* ---------- auth / org ---------- */
+.auth-wrap { min-height: 100%; display: grid; place-items: center; padding-block: 32px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+.auth-card { width: min(420px, 100%); padding: 24px; box-shadow: var(--shadow); }
+.org-chip { border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; background: var(--surface-2); display: grid; gap: 1px; min-width: 0; }
+.org-chip .cell-title, .org-chip .small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+@media (max-width: 1100px) { .kpis { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+@media (max-width: 900px) {
+  .app { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); }
+  .rail { flex-direction: row; flex-wrap: wrap; align-items: center; border-right: 0; border-bottom: 1px solid var(--line); padding-block: 10px; padding-right: max(16px, env(safe-area-inset-right, 0px)); gap: 8px 12px; }
+  .nav { display: flex; flex-wrap: wrap; gap: 4px; } .nav button { width: auto; } .nav-sites, .nav-sites-label { display: none; } .rail .spacer { display: none; }
+  .grid-2 { grid-template-columns: minmax(0, 1fr); }
+  .insight-row { grid-template-columns: minmax(0, 1fr); }
+  .fields.two { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 600px) { .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); } .grid-3 { grid-template-columns: minmax(0, 1fr); } .attn-item { grid-template-columns: minmax(0, 1fr); } .attn-item .money { text-align: left; } }
+@media (prefers-reduced-motion: no-preference) { .btn, .nav button, .seg button { transition: background .12s, color .12s; } }
+</style>
+
+</head>
+<body>
+<div id="root"></div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.3.1/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.3.1/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone@7.25.6/babel.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
+<script>
+// Public client configuration. The publishable key is designed to be shipped to browsers; data access is
+// enforced by row-level security in the database. No secret key is (or may ever be) placed in this file.
+window.SOLAROPS_CONFIG = {"url":"https://rpqftwjuzttbjjscnjcv.supabase.co","publishableKey":"sb_publishable_AM3GAfNjdepCj2qjSg9hQg_YDpf0ITa"};
+</script>
+<script>
+/* SolarOps v1 core: data models, deterministic demo seed, analytics engine,
+   anomaly rules, ranking, insight templates, CSV validation.
+   Pure JS, no DOM. Runs in the browser (window.SolarOpsCore) and in Node (module.exports). */
+(function (root, factory) {
+  if (typeof module === "object" && module.exports) module.exports = factory();
+  else root.SolarOpsCore = factory();
+})(typeof self !== "undefined" ? self : this, function () {
+  "use strict";
+
+  // ---------------------------------------------------------------- constants
+  const DEMO_END = "2026-11-09";      // last day of the synthetic dataset ("today" in demo mode)
+  const DEMO_DAYS = 90;
+  const DEFAULT_SETTINGS = { energyValue: 0.12, currency: "USD" };
+  const RULES = {
+    UNDERPERF_EPI: 0.85,        // Rule 1: EPI below 85%
+    UNDERPERF_MIN_DAYS: 3,      // for 3 consecutive eligible days
+    UNDERPERF_MIN_YIELD: 0.5,   // day eligible only if expected > 0.5 kWh per kWp
+    OUTAGE_MAX_RATIO: 0.05,     // Rule 2: actual at most 5% of expected
+    OUTAGE_MIN_YIELD: 1.0,      // and expected at least 1 kWh per kWp
+    INSUFFICIENT_COVERAGE: 60,  // Rule 5: below 60% coverage, no reliable assessment
+    RECOVERY_MIN_DAYS: 2,       // recovery = 2 valid days after the event at or above the Rule 1 EPI threshold
+  };
+  const STATUSES = ["Open", "Investigating", "Scheduled", "Resolved"];
+  const PRIORITIES = ["Critical", "High", "Medium", "Low"];
+  const TEAM = ["Unassigned", "Maria Lopez (O&M lead)", "Devin Carter (field tech)", "Priya Nair (asset manager)", "External contractor"];
+
+  // ---------------------------------------------------------------- dates
+  const pad = (n) => String(n).padStart(2, "0");
+  function toISO(d) { return `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())}`; }
+  function parseISO(s) { const [y, m, d] = s.split("-").map(Number); return new Date(Date.UTC(y, m - 1, d)); }
+  function addDays(iso, n) { const d = parseISO(iso); d.setUTCDate(d.getUTCDate() + n); return toISO(d); }
+  function daysBetween(a, b) { return Math.round((parseISO(b) - parseISO(a)) / 86400000); }
+  function periodDates(endISO, n) { const out = []; for (let i = n - 1; i >= 0; i--) out.push(addDays(endISO, -i)); return out; }
+  function fmtDate(iso) {
+    const M = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+    const d = parseISO(iso); return `${M[d.getUTCMonth()]} ${d.getUTCDate()}`;
+  }
+  function fmtDateLong(iso) { return fmtDate(iso) + ", " + iso.slice(0, 4); }
+
+  // ---------------------------------------------------------------- deterministic PRNG
+  function mulberry32(a) {
+    return function () {
+      a |= 0; a = (a + 0x6D2B79F5) | 0;
+      let t = Math.imul(a ^ (a >>> 15), 1 | a);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  }
+  function gauss(rand) { // Box-Muller
+    let u = 0, v = 0;
+    while (u === 0) u = rand();
+    while (v === 0) v = rand();
+    return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v);
+  }
+
+  // ---------------------------------------------------------------- demo portfolio
+  const SITES = [
+    { id: "MIA-01", name: "Biscayne Freight Terminal", type: "Commercial Warehouse", city: "Miami", state: "FL", capacityKwp: 480, inverter: "SolarEdge (string, DC-optimized)", commissioned: "2023-03-14", siteFactor: 1.00, scenario: "healthy" },
+    { id: "ORL-02", name: "Lake Nona Crossing", type: "Retail Plaza", city: "Orlando", state: "FL", capacityKwp: 240, inverter: "SMA Sunny Tripower (string)", commissioned: "2022-09-02", siteFactor: 0.97, scenario: "sustained_underperformance" },
+    { id: "TPA-03", name: "Gulfport Distribution Center", type: "Distribution Center", city: "Tampa", state: "FL", capacityKwp: 720, inverter: "Sungrow (string)", commissioned: "2024-01-20", siteFactor: 1.02, scenario: "possible_outage" },
+    { id: "JAX-04", name: "Deerwood Business Park", type: "Business Park", city: "Jacksonville", state: "FL", capacityKwp: 310, inverter: "Fronius Symo (string)", commissioned: "2021-11-08", siteFactor: 0.95, scenario: "missing_data" },
+    { id: "FLL-05", name: "Cypress Creek Office Complex", type: "Office Complex", city: "Fort Lauderdale", state: "FL", capacityKwp: 150, inverter: "SolarEdge (string, DC-optimized)", commissioned: "2023-07-30", siteFactor: 1.01, scenario: "recovered_event" },
+    { id: "WPB-06", name: "Okeeheelee Community Center", type: "Community Facility", city: "West Palm Beach", state: "FL", capacityKwp: 90, inverter: "Enphase IQ8 (microinverters)", commissioned: "2024-05-11", siteFactor: 1.04, scenario: "normal_variability" },
+  ];
+
+  function generateDemoRecords(seed) {
+    const rand = mulberry32(seed || 20261109);
+    const dates = periodDates(DEMO_END, DEMO_DAYS);
+    // Regional daily "weather" yield in kWh per kWp: seasonal drift from ~4.9 (Aug) to ~3.9 (Nov) plus day-to-day variation
+    const regional = dates.map((d, i) => {
+      const season = 4.9 - 1.0 * (i / (DEMO_DAYS - 1));
+      let y = season * (1 + 0.12 * gauss(rand));
+      if (rand() < 0.12) y *= 0.55;          // overcast / rainy day
+      return Math.min(5.5, Math.max(2.0, y));
+    });
+    const records = [];
+    SITES.forEach((s) => {
+      dates.forEach((date, i) => {
+        const localWeather = 1 + 0.05 * gauss(rand);
+        let expected = s.capacityKwp * regional[i] * s.siteFactor * localWeather;
+        expected = Math.round(expected * 10) / 10;
+        let perf = 1 + 0.03 * gauss(rand);
+        let actual = null, quality = "valid";
+        switch (s.scenario) {
+          case "healthy": break;
+          case "sustained_underperformance":
+            if (i >= 78) perf = 0.75 + 0.04 * gauss(rand);       // last 12 days, ongoing
+            break;
+          case "possible_outage":
+            if (i >= 86) perf = 0.012 + 0.01 * rand();           // last 4 days near zero, ongoing
+            break;
+          case "missing_data":
+            if (i >= 83 && i <= 86) { quality = "missing_actual"; }
+            if (i === 41) { quality = "missing_actual"; }       // one isolated historical gap
+            break;
+          case "recovered_event":
+            if (i >= 30 && i <= 38) perf = 0.72 + 0.04 * gauss(rand);  // historical, then normal
+            break;
+          case "normal_variability":
+            perf = 1 + 0.06 * gauss(rand);
+            if (rand() < 0.08) perf = 1.07 + 0.03 * rand();      // above-baseline days
+            if (i === 50) { expected = null; quality = "missing_baseline"; }
+            break;
+        }
+        if (quality === "valid") actual = Math.round(Math.max(0, expected * perf) * 10) / 10;
+        if (quality === "missing_baseline") actual = Math.round(s.capacityKwp * regional[i] * s.siteFactor * 10) / 10;
+        records.push({
+          siteId: s.id, date, capacityKwp: s.capacityKwp,
+          expectedKwh: expected, actualKwh: actual,
+          dataSource: "demo_monitoring", baselineSource: "demo_baseline", quality,
+        });
+      });
+    });
+    return records;
+  }
+
+  // ---------------------------------------------------------------- record helpers
+  function isValidPair(r) {
+    return r && r.actualKwh != null && r.expectedKwh != null && Number.isFinite(r.actualKwh) && Number.isFinite(r.expectedKwh) && r.expectedKwh > 0;
+  }
+  function recordMap(records) {
+    const m = new Map();
+    records.forEach((r) => m.set(r.siteId + "|" + r.date, r));
+    return m;
+  }
+  /** Merge imported records over demo records. Imported records win by (siteId, date). */
+  function mergeRecords(demo, imported) {
+    const m = recordMap(demo);
+    (imported || []).forEach((r) => m.set(r.siteId + "|" + r.date, r));
+    return Array.from(m.values());
+  }
+
+  // ---------------------------------------------------------------- analytics
+  /** Metrics for one site over a list of dates (eligible days = dates on/after commissioning). */
+  function priceFor(site, settings) {
+    return site && site.energyValue != null ? Number(site.energyValue) : (settings || DEFAULT_SETTINGS).energyValue;
+  }
+  function siteMetrics(records, site, dates, settings) {
+    const price = priceFor(site, settings);
+    const byDate = new Map(records.filter((r) => r.siteId === site.id).map((r) => [r.date, r]));
+    const eligible = dates.filter((d) => d >= site.commissioned);
+    let actual = 0, expected = 0, shortfall = 0, valid = 0, missingActual = 0, missingBaseline = 0, invalid = 0, noRecord = 0;
+    const days = eligible.map((d) => {
+      const r = byDate.get(d);
+      if (!r) { noRecord++; return { date: d, status: "no_record", actual: null, expected: null }; }
+      if (isValidPair(r)) {
+        valid++; actual += r.actualKwh; expected += r.expectedKwh; shortfall += Math.max(0, r.expectedKwh - r.actualKwh);
+        return { date: d, status: "valid", actual: r.actualKwh, expected: r.expectedKwh, epi: r.actualKwh / r.expectedKwh };
+      }
+      if (r.actualKwh == null && r.expectedKwh != null) { missingActual++; return { date: d, status: "missing_actual", actual: null, expected: r.expectedKwh }; }
+      if (r.expectedKwh == null) { missingBaseline++; return { date: d, status: "missing_baseline", actual: r.actualKwh, expected: null }; }
+      invalid++; return { date: d, status: "invalid", actual: r.actualKwh, expected: r.expectedKwh };
+    });
+    const epi = expected > 0 ? (actual / expected) * 100 : null;
+    const coverage = eligible.length ? (valid / eligible.length) * 100 : null;
+    return {
+      siteId: site.id, days, eligibleDays: eligible.length, validDays: valid,
+      missingActual, missingBaseline, invalid, noRecord,
+      actualKwh: round(actual, 1), expectedKwh: round(expected, 1), epi: epi == null ? null : round(epi, 1),
+      shortfallKwh: round(shortfall, 1), shortfallValue: round(shortfall * price, 2), energyValue: price,
+      coverage: coverage == null ? null : round(coverage, 1),
+      lastMeasurement: lastValidDate(records, site.id),
+    };
+  }
+  function lastValidDate(records, siteId) {
+    let last = null;
+    records.forEach((r) => { if (r.siteId === siteId && r.actualKwh != null && (!last || r.date > last)) last = r.date; });
+    return last;
+  }
+  /** Weighted portfolio EPI: sum of actual over sum of expected across valid pairs. Never an average of percentages. */
+  function portfolioMetrics(perSite, settings) {
+    const price = (settings || DEFAULT_SETTINGS).energyValue;
+    let a = 0, e = 0, sf = 0, val = 0;
+    perSite.forEach((m) => { a += m.actualKwh; e += m.expectedKwh; sf += m.shortfallKwh; val += m.shortfallKwh * (m.energyValue != null ? m.energyValue : price); });
+    return {
+      actualKwh: round(a, 1), expectedKwh: round(e, 1), epi: e > 0 ? round((a / e) * 100, 1) : null,
+      shortfallKwh: round(sf, 1), shortfallValue: round(val, 2),
+    };
+  }
+  function round(x, d) { const p = Math.pow(10, d); return Math.round(x * p) / p; }
+
+  // ---------------------------------------------------------------- anomaly detection (deterministic rules)
+  /** Classify every record day for a site, then group consecutive days into events. */
+  function detectAnomalies(records, site) {
+    const rs = records.filter((r) => r.siteId === site.id && r.date >= site.commissioned).sort((x, y) => x.date < y.date ? -1 : 1);
+    const cap = site.capacityKwp;
+    const dayClass = rs.map((r) => {
+      if (r.actualKwh == null || r.expectedKwh == null) return { r, cls: "missing" };
+      if (!(r.expectedKwh > 0)) return { r, cls: "none" };
+      const yieldPerKwp = r.expectedKwh / cap;
+      const ratio = r.actualKwh / r.expectedKwh;
+      if (ratio <= RULES.OUTAGE_MAX_RATIO && yieldPerKwp >= RULES.OUTAGE_MIN_YIELD) return { r, cls: "outage", ratio };
+      if (ratio < RULES.UNDERPERF_EPI && yieldPerKwp > RULES.UNDERPERF_MIN_YIELD) return { r, cls: "under", ratio };
+      return { r, cls: "none", ratio };
+    });
+    const events = [];
+    let run = [];
+    const flush = () => {
+      if (!run.length) return;
+      const cls = run[0].cls;
+      if (cls === "under" && run.length < RULES.UNDERPERF_MIN_DAYS) { run = []; return; }
+      const start = run[0].r.date, end = run[run.length - 1].r.date;
+      const ev = {
+        id: `${site.id}:${cls}:${start}`, siteId: site.id, start, end, days: run.length,
+        ongoing: end === rs[rs.length - 1].date,
+        dates: run.map((x) => x.r.date),
+      };
+      if (cls === "missing") {
+        Object.assign(ev, { rule: "missing_data", kind: "data", label: "Monitoring data unavailable",
+          severity: 1, missingActual: run.filter((x) => x.r.actualKwh == null).length, missingBaseline: run.filter((x) => x.r.expectedKwh == null).length });
+      } else {
+        let a = 0, e = 0;
+        run.forEach((x) => { a += x.r.actualKwh; e += x.r.expectedKwh; });
+        Object.assign(ev, {
+          rule: cls === "outage" ? "possible_outage" : "sustained_underperformance", kind: "production",
+          label: cls === "outage" ? "Possible production outage, investigation required" : "Sustained underperformance detected",
+          severity: cls === "outage" ? 3 : 2,
+          actualKwh: round(a, 1), expectedKwh: round(e, 1), epi: round((a / e) * 100, 1), shortfallKwh: round(e - a, 1),
+          ruleText: cls === "outage"
+            ? `Rule 2: actual production at most ${RULES.OUTAGE_MAX_RATIO * 100}% of expected on days where expected was at least ${RULES.OUTAGE_MIN_YIELD} kWh per kWp.`
+            : `Rule 1: EPI below ${RULES.UNDERPERF_EPI * 100}% for ${RULES.UNDERPERF_MIN_DAYS} or more consecutive eligible days (expected above ${RULES.UNDERPERF_MIN_YIELD} kWh per kWp).`,
+        });
+      }
+      events.push(ev); run = [];
+    };
+    dayClass.forEach((x) => {
+      if (x.cls === "none") { flush(); return; }
+      if (run.length && run[0].cls !== x.cls) flush();
+      run.push(x);
+    });
+    flush();
+    events.forEach((ev) => Object.assign(ev, assessRecovery(ev, rs, cap)));
+    return events;
+  }
+
+  /** Physical recovery is decided ONLY by valid measurements after the event, never by task status.
+      Production event: RECOVERY_MIN_DAYS valid days with EPI >= the Rule 1 threshold. A valid day still below the
+      threshold (on a day with meaningful expected yield) resets the count. Missing or invalid days, and
+      low-irradiance days, are not evidence either way. Data event: RECOVERY_MIN_DAYS valid measurements resumed. */
+  function assessRecovery(ev, siteRecordsSorted, capacityKwp) {
+    let streak = 0;
+    for (const r of siteRecordsSorted) {
+      if (r.date <= ev.end || !isValidPair(r)) continue;
+      if (ev.kind === "data") streak++;
+      else if (r.actualKwh / r.expectedKwh >= RULES.UNDERPERF_EPI) streak++;
+      else if (r.expectedKwh / capacityKwp > RULES.UNDERPERF_MIN_YIELD) streak = 0;
+      if (streak >= RULES.RECOVERY_MIN_DAYS) return { recovered: true, recoveredOn: r.date };
+    }
+    return { recovered: false, recoveredOn: null };
+  }
+
+  /** Anomaly lifecycle, from data only. Active: not yet recovered. Recovered: recovered, overlaps the selected period.
+      Historical: recovered, entirely before the selected period. */
+  function lifecycleOf(ev, dates) {
+    if (!ev.recovered) return "Active";
+    const set = new Set(dates);
+    return ev.dates.some((d) => set.has(d)) ? "Recovered" : "Historical";
+  }
+
+  /** Restrict an event's figures to the selected period. */
+  function eventInPeriod(ev, records, dates, settings) {
+    const price = (settings || DEFAULT_SETTINGS).energyValue;
+    const set = new Set(dates);
+    const inDates = ev.dates.filter((d) => set.has(d));
+    if (!inDates.length) return null;
+    const byDate = new Map(records.filter((r) => r.siteId === ev.siteId).map((r) => [r.date, r]));
+    let a = 0, e = 0;
+    inDates.forEach((d) => { const r = byDate.get(d); if (isValidPair(r)) { a += r.actualKwh; e += r.expectedKwh; } });
+    return Object.assign({}, ev, {
+      periodDays: inDates.length, periodActual: round(a, 1), periodExpected: round(e, 1),
+      periodShortfall: round(Math.max(0, e - a), 1), periodValue: round(Math.max(0, e - a) * price, 2),
+      periodEpi: e > 0 ? round((a / e) * 100, 1) : null,
+    });
+  }
+
+  /** Maintenance state only: whether a linked work order is closed. Never used for anomaly or site status. */
+  function isResolved(ev, tasks) {
+    return (tasks || []).some((t) => t.anomalyId === ev.id && t.status === "Resolved");
+  }
+  /** The work order linked to an event (one per event; latest id if legacy duplicates exist). */
+  function taskForEvent(eventId, tasks) {
+    const linked = (tasks || []).filter((t) => eventId && t.anomalyId === eventId);
+    return linked.length ? linked.sort((a, b) => (a.id < b.id ? 1 : -1))[0] : null;
+  }
+  /** A new work order may be created for an event only if none is linked yet; otherwise reopen the existing one. */
+  function canCreateTask(eventId, tasks) { return !eventId || !taskForEvent(eventId, tasks); }
+
+  /** Transparent ranking: active (not yet recovered) production anomalies, by shortfall value in period, then days,
+      then severity. Task status does not affect ranking; `tasks` is kept in the signature for compatibility. */
+  function rankAnomalies(periodEvents, tasks) {
+    const prod = periodEvents.filter((e) => e.kind === "production" && !e.recovered);
+    prod.sort((x, y) => (y.periodShortfall - x.periodShortfall) || (y.periodDays - x.periodDays) || (y.severity - x.severity));
+    return prod.map((e, i) => Object.assign({}, e, {
+      rank: i + 1,
+      rankReason: i === 0
+        ? `Priority 1: highest estimated production shortfall value among active production anomalies in the selected period (${e.periodShortfall.toLocaleString()} kWh over ${e.periodDays} day${e.periodDays === 1 ? "" : "s"}).`
+        : `Priority ${i + 1}: ranked below ${prod[i - 1].siteId} because its shortfall in the period (${e.periodShortfall.toLocaleString()} kWh) is smaller (${prod[i - 1].periodShortfall.toLocaleString()} kWh). Secondary factors: ${e.periodDays} days, ${e.rule === "possible_outage" ? "outage" : "underperformance"} severity.`,
+    }));
+  }
+
+  /** Rule 4 / Rule 5 / status column. */
+  function siteStatus(metrics, siteEvents) {
+    const activeData = siteEvents.some((e) => e.kind === "data");
+    const activeProd = siteEvents.some((e) => e.kind === "production");
+    if (metrics.coverage == null || metrics.coverage < RULES.INSUFFICIENT_COVERAGE)
+      return { status: "Insufficient data", label: "Insufficient data for reliable performance assessment.", tone: "neutral" };
+    if (activeProd) return { status: "Review", label: "Production anomaly flagged in this period.", tone: "warn" };
+    if (activeData || metrics.coverage < 100) return { status: "Data Issue", label: "Monitoring data incomplete in this period.", tone: "info" };
+    return { status: "Healthy", label: "Operating within expected range.", tone: "good" };
+  }
+
+  // ---------------------------------------------------------------- insight templates (deterministic, explainable)
+  function money(v) { return "$" + Number(v).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
+  function kwh(v) { return Number(v).toLocaleString("en-US", { maximumFractionDigits: 0 }) + " kWh"; }
+
+  function buildInsight(ctx) {
+    // ctx: { site, metrics (period), event (periodEvent or null), status, settings }
+    const { site, metrics: m, event: e, status, settings } = ctx;
+    const price = (settings || DEFAULT_SETTINGS).energyValue;
+    const base = { dataLimits: [] };
+    if (m.coverage != null && m.coverage < 100) base.dataLimits.push(`Data coverage is ${m.coverage}% (${m.validDays} of ${m.eligibleDays} eligible days have both a measurement and a baseline). Missing days are excluded from every figure above and are never counted as zero production.`);
+    base.dataLimits.push("Expected generation is the supplied baseline (demo: synthetic baseline). If the baseline is wrong, EPI and shortfall are wrong with it. Confirm the baseline source before acting.");
+    base.dataLimits.push("Daily energy totals cannot show which inverter, string or module is responsible, and cannot confirm a physical cause. Inverter event logs or alarms are needed for that.");
+
+    if (status.status === "Insufficient data") return Object.assign(base, {
+      headline: "Insufficient data for reliable performance assessment",
+      observation: `Only ${m.validDays} of ${m.eligibleDays} eligible days in this period have both a measurement and a baseline (${m.coverage == null ? "0" : m.coverage}% coverage). That is below the ${RULES.INSUFFICIENT_COVERAGE}% threshold for a reliable assessment.`,
+      evidence: `Valid days: ${m.validDays}. Missing measurements: ${m.missingActual}. Missing baseline: ${m.missingBaseline}.`,
+      exposure: "Not estimated. SolarOps does not estimate energy loss from missing readings.",
+      explanations: ["Monitoring gateway or network outage", "Data logger or portal export problem", "Site reporting not yet configured for this period"],
+      nextStep: "Restore the data feed or import the missing days, then re-run the assessment. Do not schedule physical maintenance on this evidence alone.",
+    });
+
+    if (e && e.kind === "production" && !e.ongoing && !e.recovered) base.dataLimits.unshift(`Recovery not yet confirmed. The rule condition stopped after ${fmtDate(e.end)}, but SolarOps needs ${RULES.RECOVERY_MIN_DAYS} valid days at or above ${RULES.UNDERPERF_EPI * 100}% of expected before treating the site as recovered.`);
+    if (e && e.rule === "possible_outage") return Object.assign(base, {
+      headline: e.label,
+      observation: `Measured production was near zero (${e.periodEpi}% of expected) for ${e.periodDays} consecutive day${e.periodDays === 1 ? "" : "s"} from ${fmtDate(e.start)}${e.ongoing ? ", and the condition is still present in the latest data" : " to " + fmtDate(e.end)}, while the expected baseline for those days was substantial.`,
+      evidence: `Actual: ${kwh(e.periodActual)}. Expected: ${kwh(e.periodExpected)}. Average expected per kWp on those days: ${round(e.periodExpected / e.periodDays / site.capacityKwp, 2)} kWh/kWp (rule threshold ${RULES.OUTAGE_MIN_YIELD}). ${e.ruleText}`,
+      exposure: `Observed energy shortfall vs baseline: ${kwh(e.periodShortfall)}. Estimated shortfall value: ${money(e.periodValue)} at an assumed $${price.toFixed(2)}/kWh. This is an illustrative proxy for the period, not verified lost revenue.`,
+      explanations: ["Inverter or AC disconnect trip (site offline)", "Utility or interconnection outage", "Meter or communications fault reporting zero while the site produces", "Planned shutdown not recorded in SolarOps"],
+      nextStep: "Confirm with the inverter portal or on-site whether the system is actually offline. If it is, attempt a remote reset where supported, then dispatch a technician. If production is fine on site, treat this as a monitoring fault.",
+    });
+
+    if (e && e.rule === "sustained_underperformance") return Object.assign(base, {
+      headline: e.label,
+      observation: `Generation was ${round(100 - e.periodEpi, 0)}% below the supplied expected baseline during ${e.periodDays} consecutive valid reporting day${e.periodDays === 1 ? "" : "s"} starting ${fmtDate(e.start)}${e.ongoing ? ", and the pattern continues in the latest data" : ", ending " + fmtDate(e.end)}.`,
+      evidence: `Actual: ${kwh(e.periodActual)}. Expected: ${kwh(e.periodExpected)}. EPI over the event: ${e.periodEpi}%. Valid data coverage in the period: ${m.coverage}%. ${e.ruleText}`,
+      exposure: `Observed energy shortfall vs baseline: ${kwh(e.periodShortfall)}. Estimated shortfall value: ${money(e.periodValue)} at an assumed $${price.toFixed(2)}/kWh. Illustrative proxy only; actual tariff or PPA terms may differ.`,
+      explanations: ["One or more inverters or strings offline (partial availability)", "Soiling, shading or module damage reducing DC output", "Inverter derating or clipping settings changed", "Weather-baseline mismatch (baseline too optimistic for the period)", "Meter or monitoring measurement error"],
+      nextStep: "Review inverter fault logs and per-inverter output for the event dates, confirm meter readings against the utility, and verify the expected-generation baseline before scheduling physical maintenance.",
+    });
+
+    if (e && e.rule === "missing_data") return Object.assign(base, {
+      headline: e.label,
+      observation: `No production measurement was received for ${e.periodDays} day${e.periodDays === 1 ? "" : "s"} starting ${fmtDate(e.start)}${e.ongoing ? " and the feed has not resumed" : ""}.`,
+      evidence: `Missing measurements: ${e.missingActual}. Missing baselines: ${e.missingBaseline}. These days are excluded from EPI, shortfall and financial figures.`,
+      exposure: "Not estimated. A missing reading is not evidence that the site stopped producing.",
+      explanations: ["Monitoring gateway or cellular/network outage", "Portal export or API failure", "Data logger power loss"],
+      nextStep: "Check the monitoring gateway and portal, then import the missing days once available. If the site was actually down, the imported data will show it.",
+    });
+
+    return Object.assign(base, {
+      headline: "Operating within expected range",
+      observation: `Over ${m.validDays} valid day${m.validDays === 1 ? "" : "s"}, generation was ${m.epi}% of the expected baseline with no rule-based anomaly triggered.`,
+      evidence: `Actual: ${kwh(m.actualKwh)}. Expected: ${kwh(m.expectedKwh)}. Coverage: ${m.coverage}%.`,
+      exposure: m.shortfallKwh > 0 ? `Ordinary day-to-day variation below baseline sums to ${kwh(m.shortfallKwh)} (${money(m.shortfallValue)} at $${price.toFixed(2)}/kWh). This is normal scatter, not a flagged problem.` : "No shortfall against baseline in this period.",
+      explanations: [],
+      nextStep: "No investigation recommended. Continue routine monitoring.",
+    });
+  }
+
+  // ---------------------------------------------------------------- tasks
+  function newTaskId(existing) {
+    const n = (existing || []).reduce((mx, t) => Math.max(mx, parseInt(String(t.id).replace(/\D/g, ""), 10) || 0), 0) + 1;
+    return "INV-" + String(n).padStart(3, "0");
+  }
+  function defaultPriority(rankedEvent) {
+    if (!rankedEvent) return "Medium";
+    if (rankedEvent.rule === "possible_outage") return "Critical";
+    if (rankedEvent.rank === 1) return "High";
+    return "Medium";
+  }
+  function seedTasks(records) {
+    // One resolved investigation for the historical, recovered event at FLL-05, so history is populated.
+    const fll = SITES.find((s) => s.id === "FLL-05");
+    const ev = detectAnomalies(records, fll).find((e) => e.rule === "sustained_underperformance");
+    if (!ev) return [];
+    return [{
+      id: "INV-001", siteId: "FLL-05", anomalyId: ev.id,
+      title: "Sustained underperformance at Cypress Creek Office Complex",
+      description: `EPI ${ev.epi}% over ${ev.days} days (${fmtDate(ev.start)} to ${fmtDate(ev.end)}). Shortfall ${kwh(ev.shortfallKwh)}.`,
+      priority: "High", assignee: "Devin Carter (field tech)", status: "Resolved",
+      createdAt: addDays(ev.start, 2), resolvedAt: addDays(ev.end, 1), estimatedCost: 650,
+      shortfallKwh: ev.shortfallKwh,
+      notes: [
+        { date: addDays(ev.start, 2), text: "Portal shows inverter 2 of 3 in standby since the event start. Remote reset did not clear it." },
+        { date: addDays(ev.start, 6), text: "Site visit: blown DC fuse on inverter 2 string 3, replaced. Inverter back online." },
+        { date: addDays(ev.end, 1), text: "Production back within baseline for 2 days. Closing." },
+      ],
+    }];
+  }
+
+  // ---------------------------------------------------------------- CSV import
+  const REQUIRED_COLS = ["date", "site_id", "actual_kwh", "expected_kwh"];
+  const OPTIONAL_COLS = ["inverter_id", "alarm_code", "data_source"];
+  function parseCSV(text) {
+    const lines = text.replace(/\r/g, "").split("\n").filter((l) => l.trim().length);
+    if (!lines.length) return { header: [], rows: [] };
+    const split = (l) => l.split(",").map((c) => c.trim().replace(/^"|"$/g, ""));
+    const header = split(lines[0]).map((h) => h.toLowerCase());
+    const rows = lines.slice(1).map(split);
+    return { header, rows };
+  }
+  /** Validate parsed CSV. Returns { ok, errors[], records[], warnings[], duplicatesWithin, existingKeys } */
+  function validateImport(text, knownSiteIds, existingRecords) {
+    const { header, rows } = parseCSV(text);
+    const errors = [], warnings = [], records = [];
+    const missing = REQUIRED_COLS.filter((c) => !header.includes(c));
+    if (missing.length) return { ok: false, errors: [`Missing required column${missing.length > 1 ? "s" : ""}: ${missing.join(", ")}. Expected header: ${REQUIRED_COLS.join(",")}`], records: [], warnings: [] };
+    const idx = (c) => header.indexOf(c);
+    const seen = new Set(); let dupWithin = 0;
+    const existing = new Set((existingRecords || []).map((r) => r.siteId + "|" + r.date));
+    let overwrites = 0;
+    rows.forEach((cells, i) => {
+      const line = i + 2;
+      const date = cells[idx("date")], siteId = (cells[idx("site_id")] || "").toUpperCase();
+      const aRaw = cells[idx("actual_kwh")], eRaw = cells[idx("expected_kwh")];
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(date || "") || isNaN(parseISO(date).getTime()) || toISO(parseISO(date)) !== date) { errors.push(`Line ${line}: invalid date "${date}". Use a real calendar date in YYYY-MM-DD format.`); return; }
+      if (!knownSiteIds.includes(siteId)) { errors.push(`Line ${line}: unknown site_id "${siteId}". Known sites: ${knownSiteIds.join(", ")}.`); return; }
+      const parseNum = (raw, name) => {
+        if (raw === undefined || raw === "" || raw.toLowerCase() === "na" || raw.toLowerCase() === "null") return null;
+        const v = Number(raw);
+        if (!Number.isFinite(v)) { errors.push(`Line ${line}: ${name} "${raw}" is not a number.`); return undefined; }
+        if (v < 0) { errors.push(`Line ${line}: ${name} is negative (${raw}). Energy cannot be negative.`); return undefined; }
+        return v;
+      };
+      const a = parseNum(aRaw, "actual_kwh"), e = parseNum(eRaw, "expected_kwh");
+      if (a === undefined || e === undefined) return;
+      const key = siteId + "|" + date;
+      if (seen.has(key)) { dupWithin++; errors.push(`Line ${line}: duplicate of an earlier line for ${siteId} on ${date}.`); return; }
+      seen.add(key);
+      if (existing.has(key)) overwrites++;
+      let quality = "valid";
+      if (a == null && e == null) quality = "missing_actual";
+      else if (a == null) quality = "missing_actual";
+      else if (e == null) { quality = "missing_baseline"; warnings.push(`Line ${line}: no expected_kwh. Stored as raw production with "Baseline unavailable".`); }
+      records.push({
+        siteId, date, actualKwh: a, expectedKwh: e, quality,
+        dataSource: cells[idx("data_source")] || "csv_import", baselineSource: e == null ? "none" : "csv_import",
+        inverterId: idx("inverter_id") >= 0 ? cells[idx("inverter_id")] || null : null,
+        alarmCode: idx("alarm_code") >= 0 ? cells[idx("alarm_code")] || null : null,
+      });
+    });
+    return { ok: errors.length === 0, errors, warnings, records, duplicatesWithin: dupWithin, overwrites, header, rowCount: rows.length };
+  }
+  function sampleCSV() {
+    const d = addDays(DEMO_END, 1);
+    return [
+      "date,site_id,actual_kwh,expected_kwh,inverter_id,alarm_code,data_source",
+      `${d},MIA-01,1842.5,1910.2,,,portal_export`,
+      `${d},ORL-02,702.1,955.4,,,portal_export`,
+      `${d},TPA-03,38.0,2860.7,INV-1,E-104,portal_export`,
+      `${d},JAX-04,,1230.0,,,portal_export`,
+      `${d},FLL-05,598.3,601.9,,,portal_export`,
+      `${d},WPB-06,371.6,359.0,,,portal_export`,
+    ].join("\n");
+  }
+
+  // ---------------------------------------------------------------- top-level compute (one source of truth for the UI)
+  function compute(state) {
+    // state: { records (merged), tasks, settings, periodDays, endDate, sites? (defaults to the demo SITES) }
+    const settings = state.settings || DEFAULT_SETTINGS;
+    const sites = state.sites || SITES;
+    const endDate = state.endDate || DEMO_END;
+    const dates = periodDates(endDate, state.periodDays || 30);
+    const perSite = {};
+    const allPeriodEvents = [];
+    sites.forEach((site) => {
+      const siteSettings = Object.assign({}, settings, { energyValue: priceFor(site, settings) });
+      const metrics = siteMetrics(state.records, site, dates, settings);
+      const events = detectAnomalies(state.records, site);
+      events.forEach((e) => { e.lifecycle = lifecycleOf(e, dates); });
+      const periodEvents = events.map((e) => eventInPeriod(e, state.records, dates, siteSettings)).filter(Boolean);
+      const status = siteStatus(metrics, periodEvents.filter((e) => e.kind === "production" ? !e.recovered : true));
+      const historicalEvents = events.filter((e) => e.lifecycle === "Historical");
+      perSite[site.id] = { site, metrics, events, periodEvents, historicalEvents, status };
+      allPeriodEvents.push(...periodEvents);
+    });
+    const ranked = rankAnomalies(allPeriodEvents, state.tasks);
+    const rankById = new Map(ranked.map((r) => [r.id, r]));
+    Object.values(perSite).forEach((ps) => {
+      ps.periodEvents = ps.periodEvents.map((e) => rankById.get(e.id) || e);
+      ps.rank = ps.periodEvents.reduce((best, e) => (e.rank && (!best || e.rank < best) ? e.rank : best), null);
+      const primary = ps.periodEvents.filter((e) => e.kind === "production" && !e.recovered).sort((a, b) => (a.rank || 99) - (b.rank || 99))[0]
+        || ps.periodEvents.find((e) => e.kind === "data") || null;
+      ps.primaryEvent = primary;
+      ps.insight = buildInsight({ site: ps.site, metrics: ps.metrics, event: primary, status: ps.status, settings: Object.assign({}, settings, { energyValue: priceFor(ps.site, settings) }) });
+    });
+    const portfolio = portfolioMetrics(Object.values(perSite).map((p) => p.metrics), settings);
+    const dataIssues = allPeriodEvents.filter((e) => e.kind === "data");
+    return { dates, settings, perSite, ranked, dataIssues, portfolio,
+      openTasks: (state.tasks || []).filter((t) => t.status !== "Resolved").length,
+      totalCapacity: sites.reduce((s, x) => s + x.capacityKwp, 0) };
+  }
+
+  return {
+    DEMO_END, DEMO_DAYS, DEFAULT_SETTINGS, RULES, STATUSES, PRIORITIES, TEAM, SITES, REQUIRED_COLS, OPTIONAL_COLS,
+    toISO, parseISO, addDays, daysBetween, periodDates, priceFor, fmtDate, fmtDateLong, round, money, kwh,
+    generateDemoRecords, mergeRecords, isValidPair,
+    siteMetrics, portfolioMetrics, detectAnomalies, eventInPeriod, rankAnomalies, siteStatus, isResolved, buildInsight,
+    assessRecovery, lifecycleOf, taskForEvent, canCreateTask,
+    newTaskId, defaultPriority, seedTasks, parseCSV, validateImport, sampleCSV, compute,
+  };
+});
+
+</script>
+<script>
+/* SolarOps data-access layer (Supabase). Pure I/O and shape mapping; no analytics here.
+   The analytics engine (core.js) only ever sees plain objects in its own shape:
+     site   { id: site_code, uuid, name, type, city, state, capacityKwp, inverter, commissioned, energyValue }
+     record { siteId: site_code, date, actualKwh, expectedKwh, dataSource, baselineSource, quality }
+     task   { id: "INV-001", uuid, siteId, anomalyId: event key, title, ..., notes: [{date, text}] }
+   Works in the browser (window.SolarOpsData) and in Node tests (module.exports). */
+(function (root, factory) {
+  if (typeof module === "object" && module.exports) module.exports = factory();
+  else root.SolarOpsData = factory();
+})(typeof self !== "undefined" ? self : this, function () {
+  "use strict";
+  const FN = "solarops-api";
+  const RULE_CLASS = { possible_outage: "outage", sustained_underperformance: "under", missing_data: "missing" };
+  const EXTERNAL = "External contractor";
+  const UNASSIGNED = "Unassigned";
+
+  const num = (v) => (v === null || v === undefined ? null : Number(v));
+  const pad3 = (n) => String(n).padStart(3, "0");
+  const dateOnly = (ts) => (ts ? String(ts).slice(0, 10) : null);
+  function check(res, what) {
+    if (res.error) { const e = new Error((what ? what + ": " : "") + (res.error.message || String(res.error))); e.cause = res.error; throw e; }
+    return res.data;
+  }
+  async function all(buildQuery, pageSize) {
+    const size = pageSize || 1000, out = [];
+    for (let from = 0; ; from += size) {
+      const page = check(await buildQuery().range(from, from + size - 1));
+      out.push(...page);
+      if (page.length < size) break;
+    }
+    return out;
+  }
+
+  // ---------------------------------------------------------------- mapping (pure, unit-tested)
+  function mapSite(row) {
+    return {
+      id: row.site_code, uuid: row.id, name: row.name, type: row.site_type || "Solar site",
+      city: row.city || "", state: row.state || "", capacityKwp: Number(row.capacity_kwp),
+      inverter: row.inverter_manufacturer || "Not specified", commissioned: row.commissioning_date,
+      energyValue: row.electricity_value_per_kwh == null ? null : Number(row.electricity_value_per_kwh),
+    };
+  }
+  function mapRecord(row, codeByUuid) {
+    return {
+      siteId: codeByUuid[row.site_id], date: row.measurement_date,
+      actualKwh: num(row.actual_kwh), expectedKwh: num(row.expected_kwh),
+      dataSource: row.data_source, baselineSource: row.baseline_source, quality: row.quality_status,
+    };
+  }
+  function anomalyKey(row, codeByUuid) { return codeByUuid[row.site_id] + ":" + RULE_CLASS[row.anomaly_type] + ":" + row.start_date; }
+  function memberLabel(m) { return (m.full_name && m.full_name.trim()) || "Member " + String(m.user_id).slice(0, 4); }
+  function mapTask(row, ctx) {
+    const assignee = row.assignee_id ? (ctx.memberById[row.assignee_id] ? memberLabel(ctx.memberById[row.assignee_id]) : "Former member")
+      : row.external_assignee ? row.external_assignee : UNASSIGNED;
+    return {
+      id: "INV-" + pad3(row.task_number), uuid: row.id, taskNumber: row.task_number,
+      siteId: ctx.codeByUuid[row.site_id], anomalyId: row.anomaly_id ? ctx.keyByAnomalyUuid[row.anomaly_id] || null : null,
+      anomalyUuid: row.anomaly_id, title: row.title, description: row.description || "", priority: row.priority,
+      assignee, status: row.status, createdAt: dateOnly(row.created_at), resolvedAt: dateOnly(row.resolved_at),
+      estimatedCost: row.estimated_cost == null ? null : Number(row.estimated_cost),
+      shortfallKwh: num(row.shortfall_kwh_at_creation), shortfallValue: num(row.shortfall_value_at_creation),
+      notes: (ctx.notesByTask[row.id] || []).map((n) => ({ date: dateOnly(n.created_at), text: n.note, author: n.author_id })),
+    };
+  }
+  /** UI task patch -> database columns. Notes are handled separately (append-only table). */
+  function taskPatchToRow(patch, team) {
+    const row = {};
+    if ("title" in patch) row.title = patch.title;
+    if ("description" in patch) row.description = patch.description;
+    if ("priority" in patch) row.priority = patch.priority;
+    if ("status" in patch) row.status = patch.status;           // resolved_at is maintained by the database trigger
+    if ("estimatedCost" in patch) row.estimated_cost = patch.estimatedCost === "" ? null : patch.estimatedCost;
+    if ("assignee" in patch) {
+      const m = (team.members || []).find((x) => memberLabel(x) === patch.assignee);
+      if (m) { row.assignee_id = m.user_id; row.external_assignee = null; }
+      else if (!patch.assignee || patch.assignee === UNASSIGNED) { row.assignee_id = null; row.external_assignee = null; }
+      else { row.assignee_id = null; row.external_assignee = patch.assignee; }
+    }
+    return row;
+  }
+  function recordToRow(rec, orgId, uuidByCode) {
+    return {
+      organization_id: orgId, site_id: uuidByCode[rec.siteId], measurement_date: rec.date,
+      actual_kwh: rec.actualKwh, expected_kwh: rec.expectedKwh,
+      data_source: "csv_import",                                   // only client-writable sources are allowed by RLS
+      baseline_source: rec.expectedKwh == null ? "none" : "csv_import",
+      inverter_id: rec.inverterId || null, alarm_code: rec.alarmCode || null,
+    };
+  }
+  function siteToRow(site, orgId) {
+    const row = {
+      site_code: String(site.code || site.id || "").trim().toUpperCase(), name: String(site.name || "").trim(),
+      site_type: site.type || null, city: site.city || null, state: site.state || null,
+      capacity_kwp: Number(site.capacityKwp), inverter_manufacturer: site.inverter || null,
+      commissioning_date: site.commissioned,
+      electricity_value_per_kwh: site.energyValue === "" || site.energyValue == null ? null : Number(site.energyValue),
+    };
+    if (orgId) row.organization_id = orgId;
+    return row;
+  }
+  /** Demo organization layout: the six demo sites, each fed by the MOCK connector with a scenario relative to "yesterday". */
+  function demoMappings(sites, yesterday, addDays) {
+    const plan = {
+      "MIA-01": "MOCK:healthy",
+      "ORL-02": "MOCK:under:" + addDays(yesterday, -11),
+      "TPA-03": "MOCK:outage:" + addDays(yesterday, -3),
+      "JAX-04": "MOCK:gap:" + addDays(yesterday, -6) + ":4",
+      "FLL-05": "MOCK:recovered:" + addDays(yesterday, -59) + ":9",
+      "WPB-06": "MOCK:variable",
+    };
+    return sites.map((s) => ({ code: s.id, external: plan[s.id] || "MOCK:healthy" }));
+  }
+
+  // ---------------------------------------------------------------- session & organizations
+  async function loadIdentity(sb) {
+    const { data: { user } } = await sb.auth.getUser();
+    if (!user) return null;
+    const profile = check(await sb.from("profiles").select("id, full_name, organization_id").eq("id", user.id).maybeSingle(), "profile");
+    const memberships = check(await sb.from("organization_members").select("organization_id, role, organizations(id, name, is_demo)").eq("user_id", user.id), "memberships");
+    return { user, profile, memberships };
+  }
+  async function createOrganization(sb, name, isDemo) {
+    return check(await sb.rpc("create_organization", { p_name: name, p_is_demo: !!isDemo }), "create organization");
+  }
+  async function switchOrganization(sb, userId, orgId) {
+    check(await sb.from("profiles").update({ organization_id: orgId }).eq("id", userId), "switch organization");
+  }
+
+  // ---------------------------------------------------------------- workspace load (everything the dashboard needs)
+  async function loadWorkspace(sb, orgId) {
+    const [org, settingsRow, siteRows, memberRows, connRows, mapRows, runRows] = await Promise.all([
+      sb.from("organizations").select("id, name, is_demo").eq("id", orgId).single().then((r) => check(r, "organization")),
+      sb.from("organization_settings").select("*").eq("organization_id", orgId).single().then((r) => check(r, "settings")),
+      sb.from("solar_sites").select("*").eq("organization_id", orgId).order("site_code").then((r) => check(r, "sites")),
+      sb.from("organization_members").select("user_id, role").eq("organization_id", orgId).then((r) => check(r, "members")),
+      sb.from("monitoring_connections").select("id, provider, display_name, connection_status, last_successful_sync, last_sync_attempt, last_error, created_at").eq("organization_id", orgId).order("created_at").then((r) => check(r, "connections")),
+      sb.from("monitoring_connection_sites").select("connection_id, site_id, external_site_id").eq("organization_id", orgId).then((r) => check(r, "connection sites")),
+      sb.from("sync_runs").select("id, connection_id, trigger_source, status, started_at, finished_at, window_start, window_end, records_received, records_inserted, records_updated, records_unchanged, records_rejected, rejection_reasons, sites_analyzed, error").eq("organization_id", orgId).order("started_at", { ascending: false }).limit(10).then((r) => check(r, "sync runs")),
+    ]);
+    const userIds = memberRows.map((m) => m.user_id);
+    const profileRows = userIds.length ? check(await sb.from("profiles").select("id, full_name").in("id", userIds), "member profiles") : [];
+    const nameById = Object.fromEntries(profileRows.map((p) => [p.id, p.full_name]));
+    const members = memberRows.map((m) => ({ user_id: m.user_id, role: m.role, full_name: nameById[m.user_id] || null }));
+
+    const [recordRows, anomalyRows, taskRows, noteRows] = await Promise.all([
+      all(() => sb.from("production_records").select("site_id, measurement_date, actual_kwh, expected_kwh, data_source, baseline_source, quality_status").eq("organization_id", orgId).order("measurement_date").order("site_id")),
+      all(() => sb.from("anomalies").select("*").eq("organization_id", orgId).order("start_date")),
+      all(() => sb.from("maintenance_tasks").select("*").eq("organization_id", orgId).order("task_number")),
+      all(() => sb.from("maintenance_notes").select("id, task_id, author_id, note, created_at").eq("organization_id", orgId).order("created_at")),
+    ]);
+
+    const sites = siteRows.map(mapSite);
+    const codeByUuid = Object.fromEntries(siteRows.map((s) => [s.id, s.site_code]));
+    const uuidByCode = Object.fromEntries(siteRows.map((s) => [s.site_code, s.id]));
+    const records = recordRows.map((r) => mapRecord(r, codeByUuid));
+    const keyByAnomalyUuid = {}, anomalyByKey = {};
+    anomalyRows.forEach((a) => {
+      const key = anomalyKey(a, codeByUuid);
+      keyByAnomalyUuid[a.id] = key;
+      if (a.detection_status !== "superseded") anomalyByKey[key] = a;
+    });
+    const memberById = Object.fromEntries(members.map((m) => [m.user_id, m]));
+    const notesByTask = {};
+    noteRows.forEach((n) => { (notesByTask[n.task_id] = notesByTask[n.task_id] || []).push(n); });
+    const tasks = taskRows.map((t) => mapTask(t, { codeByUuid, keyByAnomalyUuid, memberById, notesByTask }));
+    const team = [UNASSIGNED, ...members.map(memberLabel), EXTERNAL];
+    team.members = members;
+    const settings = { energyValue: Number(settingsRow.default_electricity_value), currency: settingsRow.currency, defaultPeriodDays: settingsRow.default_period_days };
+    return { org, settings, sites, records, tasks, members, team, anomalies: anomalyRows, anomalyByKey, connections: connRows, connectionSites: mapRows, syncRuns: runRows, codeByUuid, uuidByCode };
+  }
+
+  // ---------------------------------------------------------------- server analysis & sync (Edge Function)
+  async function invoke(sb, body) {
+    const res = await sb.functions.invoke(FN, { body });
+    if (res.error) {
+      let detail = res.error.message;
+      try { const ctx = res.error.context; if (ctx && typeof ctx.json === "function") { const j = await ctx.json(); if (j && j.error) detail = j.error; } } catch (e) { /* keep message */ }
+      throw new Error(detail);
+    }
+    return res.data;
+  }
+  const analyze = (sb, orgId, siteUuids) => invoke(sb, { action: "analyze", organization_id: orgId, site_ids: siteUuids && siteUuids.length ? siteUuids : undefined });
+  const syncConnection = (sb, connectionId) => invoke(sb, { action: "sync", connection_id: connectionId });
+
+  // ---------------------------------------------------------------- writes
+  async function createTask(sb, ws, data) {
+    let anomalyUuid = null;
+    if (data.anomalyId) {
+      let a = ws.anomalyByKey[data.anomalyId];
+      if (!a) {   // analysis not persisted yet for this event: run it, then look again
+        await analyze(sb, ws.org.id, [ws.uuidByCode[data.siteId]]);
+        const rows = check(await sb.from("anomalies").select("*").eq("site_id", ws.uuidByCode[data.siteId]).neq("detection_status", "superseded"), "anomalies");
+        a = rows.find((r) => anomalyKey(r, ws.codeByUuid) === data.anomalyId);
+      }
+      if (!a) throw new Error("The anomaly could not be found on the server. Refresh and try again.");
+      anomalyUuid = a.id;
+    }
+    const row = Object.assign({
+      organization_id: ws.org.id, site_id: ws.uuidByCode[data.siteId], anomaly_id: anomalyUuid,
+      title: data.title, description: data.description || null, priority: data.priority || "Medium", status: "Open",
+      shortfall_kwh_at_creation: data.shortfallKwh == null ? null : data.shortfallKwh,
+      shortfall_value_at_creation: data.shortfallValue == null ? null : data.shortfallValue,
+    }, taskPatchToRow({ assignee: data.assignee, estimatedCost: data.estimatedCost }, ws.team));
+    const created = check(await sb.from("maintenance_tasks").insert(row).select("*").single(), "create task");
+    for (const n of data.notes || []) await addNote(sb, ws.org.id, created.id, n.text);
+    return created;
+  }
+  async function updateTask(sb, taskUuid, patch, team) {
+    const row = taskPatchToRow(patch, team);
+    if (!Object.keys(row).length) return null;
+    return check(await sb.from("maintenance_tasks").update(row).eq("id", taskUuid).select("*").single(), "update task");
+  }
+  async function addNote(sb, orgId, taskUuid, text) {
+    return check(await sb.from("maintenance_notes").insert({ organization_id: orgId, task_id: taskUuid, note: text }).select("*").single(), "add note");
+  }
+  async function deleteTask(sb, taskUuid) { check(await sb.from("maintenance_tasks").delete().eq("id", taskUuid), "delete task"); }
+  async function importRecords(sb, ws, recs, policy) {
+    const rows = recs.map((r) => recordToRow(r, ws.org.id, ws.uuidByCode));
+    for (let i = 0; i < rows.length; i += 500) {
+      check(await sb.from("production_records").upsert(rows.slice(i, i + 500), { onConflict: "site_id,measurement_date", ignoreDuplicates: policy === "skip" }), "import");
+    }
+    const siteUuids = [...new Set(rows.map((r) => r.site_id))];
+    return analyze(sb, ws.org.id, siteUuids);
+  }
+  async function updateSettings(sb, orgId, patch) {
+    const row = {};
+    if ("energyValue" in patch) row.default_electricity_value = patch.energyValue;
+    if ("defaultPeriodDays" in patch) row.default_period_days = patch.defaultPeriodDays;
+    return check(await sb.from("organization_settings").update(row).eq("organization_id", orgId).select("*").single(), "settings");
+  }
+  async function saveSite(sb, orgId, site) {
+    if (site.uuid) return check(await sb.from("solar_sites").update(siteToRow(site, null)).eq("id", site.uuid).select("*").single(), "update site");
+    return check(await sb.from("solar_sites").insert(siteToRow(site, orgId)).select("*").single(), "create site");
+  }
+  async function seedDemoOrganization(sb, orgId, C) {
+    const siteRows = C.SITES.map((s) => siteToRow({ code: s.id, name: s.name, type: s.type, city: s.city, state: s.state, capacityKwp: s.capacityKwp, inverter: s.inverter, commissioned: s.commissioned }, orgId));
+    const inserted = check(await sb.from("solar_sites").insert(siteRows).select("id, site_code"), "demo sites");
+    const conn = check(await sb.from("monitoring_connections").insert({ organization_id: orgId, provider: "mock", display_name: "Mock monitoring API (synthetic)" }).select("id").single(), "mock connection");
+    const yesterday = C.addDays(C.toISO(new Date()), -1);
+    const byCode = Object.fromEntries(inserted.map((r) => [r.site_code, r.id]));
+    const maps = demoMappings(C.SITES, yesterday, C.addDays).map((m) => ({ organization_id: orgId, connection_id: conn.id, site_id: byCode[m.code], external_site_id: m.external }));
+    check(await sb.from("monitoring_connection_sites").insert(maps), "connection sites");
+    return syncConnection(sb, conn.id);
+  }
+
+  return {
+    RULE_CLASS, EXTERNAL, UNASSIGNED,
+    mapSite, mapRecord, mapTask, anomalyKey, memberLabel, taskPatchToRow, recordToRow, siteToRow, demoMappings,
+    loadIdentity, createOrganization, switchOrganization, loadWorkspace,
+    analyze, syncConnection, createTask, updateTask, addNote, deleteTask, importRecords, updateSettings, saveSite, seedDemoOrganization,
+  };
+});
+
+</script>
+<script type="text/babel" data-presets="react">
+/* SolarOps v2 UI. All numbers come from SolarOpsCore.compute(); this file only renders and edits state.
+   Two interchangeable stores feed the same Workspace: a local demo store (synthetic data, browser storage)
+   and a Supabase store (signed-in organizations, database is the source of truth). */
+const { useState, useEffect, useMemo, useRef, useCallback, useContext } = React;
+const C = window.SolarOpsCore;
+const D = window.SolarOpsData;
+const TeamCtx = React.createContext(C.TEAM);   // assignee choices: demo team, or the organization's members
+
+// ---------------------------------------------------------------- persistence (best effort)
+const KEYS = { tasks: "solarops.v1.tasks", settings: "solarops.v1.settings", imports: "solarops.v1.imports", period: "solarops.v1.period" };
+function load(key, fallback) { try { const v = localStorage.getItem(key); return v == null ? fallback : JSON.parse(v); } catch (e) { return fallback; } }
+function save(key, value) { try { localStorage.setItem(key, JSON.stringify(value)); return true; } catch (e) { return false; } }
+function todayISO() { return C.toISO(new Date()); }
+function pct(v) { return v == null ? "n/a" : v.toFixed(1) + "%"; }
+function num(v, d = 0) { return v == null ? "n/a" : Number(v).toLocaleString("en-US", { maximumFractionDigits: d }); }
+function copyText(text) {
+  return new Promise((resolve) => {
+    try { navigator.clipboard.writeText(text).then(() => resolve(true), () => resolve(false)); } catch (e) { resolve(false); }
+  });
+}
+function readHash() {
+  const h = (location.hash || "").replace(/^#/, "");
+  if (/^site-[A-Z0-9][A-Z0-9-]{1,15}$/.test(h)) return { view: "site", siteId: h.slice(5) };
+  if (h === "maintenance") return { view: "maintenance" };
+  return { view: "portfolio" };
+}
+function useWidth(ref) {
+  const [w, setW] = useState(600);
+  useEffect(() => {
+    if (!ref.current) return;
+    const el = ref.current;
+    const update = () => setW(Math.max(280, el.clientWidth));
+    update();
+    let ro;
+    if (window.ResizeObserver) { ro = new ResizeObserver(update); ro.observe(el); }
+    else window.addEventListener("resize", update);
+    return () => { if (ro) ro.disconnect(); else window.removeEventListener("resize", update); };
+  }, [ref]);
+  return w;
+}
+const TONE_BY_RULE = { possible_outage: "crit", sustained_underperformance: "warn", missing_data: "info" };
+const STATUS_TONE = { Healthy: "good", Review: "warn", "Data Issue": "info", "Insufficient data": "neutral" };
+const PRIORITY_TONE = { Critical: "crit", High: "warn", Medium: "info", Low: "neutral" };
+const TASK_TONE = { Open: "warn", Investigating: "info", Scheduled: "neutral", Resolved: "good" };
+
+// ---------------------------------------------------------------- small pieces
+function Pill({ tone = "neutral", children, title }) { return <span className={"pill " + tone} title={title}>{children}</span>; }
+const LIFECYCLE_TONE = { Active: "warn", Recovered: "good", Historical: "neutral" };
+const LIFECYCLE_TIP = { Active: "Still present in the latest valid data, or recovery not yet confirmed", Recovered: "Recovered: confirmed by later valid measurements", Historical: "Recovered before the selected period" };
+function LifecyclePill({ ev }) { return ev && ev.lifecycle ? <Pill tone={LIFECYCLE_TONE[ev.lifecycle]} title={LIFECYCLE_TIP[ev.lifecycle]}>{ev.lifecycle}</Pill> : null; }
+// Task closed but the data still shows the fault: maintenance state and physical state disagree.
+function faultPersists(task, ev) { return !!(task && ev && task.status === "Resolved" && ev.kind === "production" && !ev.recovered); }
+function PersistsPill() { return <Pill tone="crit" title="Work order is Resolved, but production data still shows the fault">Task resolved, fault still present</Pill>; }
+function Icon({ name }) {
+  const p = { grid: "M3 3h7v7H3zM14 3h7v7h-7zM3 14h7v7H3zM14 14h7v7h-7z", site: "M3 11l9-8 9 8M5 10v10h14V10", wrench: "M14.7 6.3a4 4 0 0 0 5 5L13 18a3 3 0 0 1-4.2 0l-1-1a3 3 0 0 1 0-4.2zM3 21l4-4", sun: "M12 3v2M12 19v2M3 12h2M19 12h2M5.6 5.6l1.4 1.4M17 17l1.4 1.4M5.6 18.4L7 17M17 7l1.4-1.4M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8z" }[name];
+  return <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d={p} /></svg>;
+}
+function Kpi({ label, value, sub, tone }) {
+  return <div className="kpi"><div className="eyebrow">{label}</div><div className={"v " + (tone || "")}>{value}</div>{sub && <div className="s">{sub}</div>}</div>;
+}
+function Overlay({ onClose, children, wide, drawer }) {
+  useEffect(() => { const k = (e) => { if (e.key === "Escape") onClose(); }; window.addEventListener("keydown", k); return () => window.removeEventListener("keydown", k); }, [onClose]);
+  return (
+    <div className="overlay" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+      <div className={drawer ? "drawer" : "dialog" + (wide ? " wide" : "")} role="dialog" aria-modal="true">{children}</div>
+    </div>
+  );
+}
+function DialogHead({ title, sub, onClose }) {
+  return <div className="dialog-head"><div><h2>{title}</h2>{sub && <p className="muted small">{sub}</p>}</div><button className="x" onClick={onClose} aria-label="Close">×</button></div>;
+}
+function Toasts({ items }) { return <div className="toasts">{items.map((t) => <div className="toast" key={t.id}>{t.text}</div>)}</div>; }
+
+// ---------------------------------------------------------------- chart (hand-rolled SVG, responsive, hover tooltip)
+// series: [{date, actual, expected, status, missingSites}], bands: [{dates:[...], tone, label}]
+function EnergyChart({ series, bands = [], height = 240, unit = "kWh" }) {
+  const wrap = useRef(null);
+  const width = useWidth(wrap);
+  const [hover, setHover] = useState(null);
+  const pad = { l: 52, r: 12, t: 12, b: 28 };
+  const iw = width - pad.l - pad.r, ih = height - pad.t - pad.b;
+  const n = series.length;
+  const maxY = Math.max(1, ...series.map((d) => Math.max(d.actual || 0, d.expected || 0))) * 1.08;
+  const x = (i) => pad.l + (n <= 1 ? iw / 2 : (i / (n - 1)) * iw);
+  const y = (v) => pad.t + ih - (v / maxY) * ih;
+  const path = (key) => {
+    let d = "", pen = false;
+    series.forEach((p, i) => { const v = p[key]; if (v == null) { pen = false; return; } d += (pen ? " L" : " M") + x(i).toFixed(1) + " " + y(v).toFixed(1); pen = true; });
+    return d;
+  };
+  const singles = (key) => series.map((p, i) => (p[key] != null && (i === 0 || series[i - 1][key] == null) && (i === n - 1 || series[i + 1][key] == null)) ? i : -1).filter((i) => i >= 0);
+  const ticks = 4;
+  const yTicks = Array.from({ length: ticks + 1 }, (_, i) => (maxY / ticks) * i);
+  const step = Math.max(1, Math.ceil(n / Math.max(3, Math.floor(iw / 80))));
+  const half = n > 1 ? (iw / (n - 1)) / 2 : iw / 2;
+  const onMove = (e) => {
+    const rect = e.currentTarget.getBoundingClientRect();
+    const px = e.clientX - rect.left;
+    if (!n) return;
+    const i = Math.round(((px - pad.l) / iw) * (n - 1));
+    setHover(Math.max(0, Math.min(n - 1, i)));
+  };
+  const indexOf = new Map(series.map((p, i) => [p.date, i]));
+  const h = hover != null ? series[hover] : null;
+  const tipLeft = h ? Math.min(Math.max(0, x(hover) - 90), width - 190) : 0;
+  return (
+    <div className="chart" ref={wrap}>
+      <svg viewBox={`0 0 ${width} ${height}`} width={width} height={height} onMouseMove={onMove} onMouseLeave={() => setHover(null)} onTouchStart={(e) => { const t = e.touches[0]; onMove({ currentTarget: e.currentTarget, clientX: t.clientX }); }} onTouchMove={(e) => { const t = e.touches[0]; onMove({ currentTarget: e.currentTarget, clientX: t.clientX }); }}>
+        {yTicks.map((v, i) => <g key={i}><line x1={pad.l} x2={width - pad.r} y1={y(v)} y2={y(v)} stroke="var(--line)" /><text x={pad.l - 8} y={y(v) + 3} textAnchor="end" fontSize="10" fill="var(--ink-3)" fontFamily="var(--f-mono)">{v >= 1000 ? (v / 1000).toFixed(v >= 10000 ? 0 : 1) + "k" : Math.round(v)}</text></g>)}
+        {bands.map((b, bi) => b.dates.map((d) => indexOf.has(d) ? indexOf.get(d) : null).filter((i) => i != null).map((i) => (
+          <rect key={bi + ":" + i} x={x(i) - half} y={pad.t} width={half * 2} height={ih} fill={b.tone === "crit" ? "var(--band-out)" : b.tone === "warn" ? "var(--band-under)" : "var(--band-data)"} />
+        )))}
+        {series.map((p, i) => (p.status === "missing_actual" || p.status === "no_record" || p.status === "missing_baseline") ? (
+          <g key={"m" + i}><rect x={x(i) - half} y={pad.t} width={half * 2} height={ih} fill="var(--band-data)" /><line x1={x(i)} x2={x(i)} y1={pad.t} y2={pad.t + ih} stroke="var(--info)" strokeDasharray="2 3" strokeWidth="1" opacity="0.6" /></g>
+        ) : null)}
+        <path d={path("expected")} fill="none" stroke="var(--expected)" strokeWidth="2" strokeDasharray="5 4" strokeLinejoin="round" />
+        <path d={path("actual")} fill="none" stroke="var(--actual)" strokeWidth="2.2" strokeLinejoin="round" strokeLinecap="round" />
+        {singles("actual").map((i) => <circle key={"sa" + i} cx={x(i)} cy={y(series[i].actual)} r="3" fill="var(--actual)" />)}
+        {singles("expected").map((i) => <circle key={"se" + i} cx={x(i)} cy={y(series[i].expected)} r="3" fill="var(--expected)" />)}
+        {series.map((p, i) => (i % step === 0 || i === n - 1) ? <text key={"t" + i} x={x(i)} y={height - 8} textAnchor={i === 0 ? "start" : i === n - 1 ? "end" : "middle"} fontSize="10" fill="var(--ink-3)">{C.fmtDate(p.date)}</text> : null)}
+        <line x1={pad.l} x2={width - pad.r} y1={pad.t + ih} y2={pad.t + ih} stroke="var(--line-2)" />
+        {h && <g><line x1={x(hover)} x2={x(hover)} y1={pad.t} y2={pad.t + ih} stroke="var(--ink)" strokeWidth="1" opacity="0.5" />
+          {h.actual != null && <circle cx={x(hover)} cy={y(h.actual)} r="4.5" fill="var(--actual)" stroke="#fff" strokeWidth="2" />}
+          {h.expected != null && <circle cx={x(hover)} cy={y(h.expected)} r="4.5" fill="var(--expected)" stroke="#fff" strokeWidth="2" />}</g>}
+      </svg>
+      {h && (
+        <div className="tip" style={{ left: tipLeft }}>
+          <div style={{ fontWeight: 600 }}>{C.fmtDateLong(h.date)}</div>
+          <div>Actual: {h.actual == null ? "no measurement" : num(h.actual, 1) + " " + unit}</div>
+          <div>Expected: {h.expected == null ? "no baseline" : num(h.expected, 1) + " " + unit}</div>
+          {h.actual != null && h.expected != null && h.expected > 0 && <div>EPI: {(h.actual / h.expected * 100).toFixed(1)}%</div>}
+          {h.missingSites > 0 && <div>{h.missingSites} site{h.missingSites > 1 ? "s" : ""} without valid data</div>}
+          {h.flag && <div style={{ color: "#fcd58b" }}>{h.flag}</div>}
+        </div>
+      )}
+      <div className="legend">
+        <span><i className="sw" style={{ borderColor: "var(--actual)" }} />Actual generation</span>
+        <span><i className="sw dash" style={{ borderColor: "var(--expected)" }} />Expected baseline</span>
+        <span><i className="sw box" style={{ background: "var(--band-under)", outline: "1px solid var(--warn)" }} />Underperformance</span>
+        <span><i className="sw box" style={{ background: "var(--band-out)", outline: "1px solid var(--crit)" }} />Possible outage</span>
+        <span><i className="sw box" style={{ background: "var(--band-data)", outline: "1px solid var(--info)" }} />Missing data (gap, never zero)</span>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------- Screen A: Portfolio Command Center
+function Portfolio({ R, records, tasks, go, openCreate }) {
+  const [q, setQ] = useState("");
+  const [sort, setSort] = useState({ key: "rank", dir: 1 });
+  const sites = Object.values(R.perSite);
+  const flagged = sites.filter((p) => p.status.status === "Review");
+  const dataIssueSites = sites.filter((p) => p.status.status === "Data Issue" || p.status.status === "Insufficient data");
+  const eligible = sites.reduce((s, p) => s + p.metrics.eligibleDays, 0);
+  const valid = sites.reduce((s, p) => s + p.metrics.validDays, 0);
+  const coverage = eligible ? (valid / eligible) * 100 : null;
+
+  const series = useMemo(() => R.dates.map((d) => {
+    let a = 0, e = 0, any = false, missing = 0;
+    sites.forEach((p) => { const day = p.metrics.days.find((x) => x.date === d); if (day && day.status === "valid") { a += day.actual; e += day.expected; any = true; } else if (day) missing++; });
+    return { date: d, actual: any ? a : null, expected: any ? e : null, status: any ? "valid" : "missing_actual", missingSites: missing };
+  }), [R]);
+
+  const rows = sites.map((p) => ({
+    id: p.site.id, name: p.site.name, city: p.site.city, cap: p.site.capacityKwp, epi: p.metrics.epi, actual: p.metrics.actualKwh, expected: p.metrics.expectedKwh,
+    value: p.metrics.shortfallValue, shortfall: p.metrics.shortfallKwh, coverage: p.metrics.coverage, status: p.status.status, rank: p.rank, last: p.metrics.lastMeasurement,
+  })).filter((r) => !q || (r.name + " " + r.id + " " + r.city + " " + r.status).toLowerCase().includes(q.toLowerCase()));
+  rows.sort((a, b) => {
+    const k = sort.key; let va = a[k], vb = b[k];
+    if (k === "rank") { va = va == null ? 99 : va; vb = vb == null ? 99 : vb; }
+    if (va == null) return 1; if (vb == null) return -1;
+    if (typeof va === "string") return va.localeCompare(vb) * sort.dir;
+    return (va - vb) * sort.dir;
+  });
+  const th = (key, label, right) => <th className={"sortable" + (right ? " r" : "")} onClick={() => setSort((s) => ({ key, dir: s.key === key ? -s.dir : (key === "name" || key === "status" || key === "rank" ? 1 : -1) }))} aria-sort={sort.key === key ? (sort.dir === 1 ? "ascending" : "descending") : "none"}>{label}{sort.key === key ? (sort.dir === 1 ? " ↑" : " ↓") : ""}</th>;
+
+  return (
+    <div className="stack">
+      <div className="kpis">
+        <Kpi label="Portfolio EPI" value={pct(R.portfolio.epi)} sub="Σ actual / Σ expected, valid days" tone={R.portfolio.epi != null && R.portfolio.epi < 85 ? "warn" : ""} />
+        <Kpi label="Actual generation" value={num(R.portfolio.actualKwh / 1000, 1) + " MWh"} sub={`vs ${num(R.portfolio.expectedKwh / 1000, 1)} MWh expected`} />
+        <Kpi label="Est. shortfall value" value={C.money(R.portfolio.shortfallValue)} sub={sites.some((p) => p.site.energyValue != null) ? `${num(R.portfolio.shortfallKwh)} kWh at each site's rate (default $${R.settings.energyValue.toFixed(2)}/kWh), estimate` : `${num(R.portfolio.shortfallKwh)} kWh at $${R.settings.energyValue.toFixed(2)}/kWh, estimate`} tone={R.portfolio.shortfallValue > 500 ? "warn" : ""} />
+        <Kpi label="Sites flagged" value={String(flagged.length)} sub={`of ${sites.length} sites, active anomaly`} tone={flagged.length ? "crit" : ""} />
+        <Kpi label="Data issues" value={String(dataIssueSites.length)} sub={`portfolio coverage ${pct(coverage)}`} tone={dataIssueSites.length ? "warn" : ""} />
+        <Kpi label="Open investigations" value={String(R.openTasks)} sub={`${tasks.filter((t) => t.status === "Resolved").length} resolved`} />
+      </div>
+
+      <div className="grid-2">
+        <div className="card">
+          <div className="card-head"><h2>Portfolio generation, actual vs expected</h2><span className="small faint">Daily totals across sites with valid data. {R.dates.length} days to {C.fmtDate(R.dates[R.dates.length - 1])}</span></div>
+          <EnergyChart series={series} />
+        </div>
+        <div className="card">
+          <div className="card-head"><h2>Attention required</h2><span className="small faint">{R.ranked.length} ranked</span></div>
+          {R.ranked.length === 0 && <div className="empty">No active production anomalies in this period.</div>}
+          <div className="attn">
+            {R.ranked.map((ev) => {
+              const site = R.perSite[ev.siteId].site;
+              const task = C.taskForEvent(ev.id, tasks);
+              return (
+                <div className="attn-item" key={ev.id}>
+                  <Pill tone="rank">#{ev.rank}</Pill>
+                  <div>
+                    <div className="title">{site.name} <span className="faint small mono">{site.id}</span>{faultPersists(task, ev) && <> <PersistsPill /></>}</div>
+                    <div className="meta"><Pill tone={TONE_BY_RULE[ev.rule]}>{ev.rule === "possible_outage" ? "Possible outage" : "Underperformance"}</Pill><span>{ev.periodDays}d{ev.ongoing ? ", ongoing" : ""}</span><span>EPI {pct(ev.periodEpi)}</span>{task && <span className="mono">{task.id}</span>}</div>
+                  </div>
+                  <div style={{ display: "grid", gap: 6, justifyItems: "end" }}>
+                    <div className="money">{C.money(ev.periodValue)}</div>
+                    <button className="btn sm primary" onClick={() => go("site", site.id)}>Investigate</button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+          {R.dataIssues.length > 0 && <p className="small faint" style={{ marginTop: 12 }}>{R.dataIssues.length} data gap{R.dataIssues.length > 1 ? "s" : ""} in this period {R.dataIssues.length > 1 ? "are" : "is"} listed in the table as Data Issue. Data gaps are not ranked by value because no loss is estimated for them.</p>}
+        </div>
+      </div>
+
+      <div className="card">
+        <div className="card-head">
+          <h2>Sites</h2>
+          <input type="search" placeholder="Search site, city, status" value={q} onChange={(e) => setQ(e.target.value)} style={{ width: 240 }} aria-label="Search sites" />
+        </div>
+        <div className="table-wrap">
+          <table>
+            <thead><tr>{th("name", "Site")}{th("cap", "kWp", true)}{th("epi", "EPI", true)}{th("actual", "Actual kWh", true)}{th("value", "Shortfall $", true)}{th("coverage", "Coverage", true)}{th("status", "Status")}{th("rank", "Priority")}</tr></thead>
+            <tbody>
+              {rows.map((r) => (
+                <tr key={r.id} className="row-link" tabIndex={0} onClick={() => go("site", r.id)} onKeyDown={(e) => { if (e.key === "Enter") go("site", r.id); }}>
+                  <td><div className="cell-title">{r.name}</div><div className="cell-sub mono">{r.id} · {r.city}</div></td>
+                  <td className="r num">{r.cap}</td>
+                  <td className="r mono" style={{ color: r.epi != null && r.epi < 85 ? "var(--crit)" : "inherit" }}>{pct(r.epi)}</td>
+                  <td className="r mono">{num(r.actual)}</td>
+                  <td className="r mono">{C.money(r.value)}</td>
+                  <td className="r mono" style={{ color: r.coverage != null && r.coverage < 100 ? "var(--info)" : "inherit" }}>{pct(r.coverage)}</td>
+                  <td><Pill tone={STATUS_TONE[r.status]}>{r.status}</Pill></td>
+                  <td>{r.rank ? <Pill tone="rank">#{r.rank}</Pill> : <span className="faint small">none</span>}</td>
+                </tr>
+              ))}
+              {rows.length === 0 && <tr><td colSpan={8}><div className="empty">No sites match "{q}".</div></td></tr>}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------- Screen B: Site Intelligence
+function SiteView({ R, siteId, tasks, go, openCreate, openTask, reopenTask }) {
+  const ps = R.perSite[siteId];
+  if (!ps) return <div className="empty">Unknown site {siteId}.</div>;
+  const { site, metrics: m, insight, status, primaryEvent } = ps;
+  const series = m.days.map((d) => Object.assign({}, d, { flag: ps.periodEvents.find((e) => e.kind === "production" && e.dates.includes(d.date)) ? ps.periodEvents.find((e) => e.kind === "production" && e.dates.includes(d.date)).label : null }));
+  const bands = ps.periodEvents.filter((e) => e.kind === "production").map((e) => ({ dates: e.dates, tone: TONE_BY_RULE[e.rule], label: e.label }));
+  const openTaskFor = primaryEvent ? C.taskForEvent(primaryEvent.id, tasks) : null;
+  const persists = faultPersists(openTaskFor, primaryEvent);
+  const siteTasks = tasks.filter((t) => t.siteId === siteId);
+  const tone = status.status === "Review" ? (primaryEvent && primaryEvent.rule === "possible_outage" ? "crit" : "warn") : STATUS_TONE[status.status];
+  return (
+    <div className="stack">
+      <div className="site-head">
+        <div>
+          <div className="eyebrow">{site.type} · {site.city}, {site.state}</div>
+          <h1>{site.name} <span className="faint mono" style={{ fontSize: "0.9rem", fontWeight: 400 }}>{site.id}</span></h1>
+          <div className="chips" style={{ marginTop: 6 }}><span>{site.capacityKwp} kWp DC</span><span>{site.inverter}</span><span>Commissioned {C.fmtDateLong(site.commissioned)}</span><span>Last valid measurement {m.lastMeasurement ? C.fmtDateLong(m.lastMeasurement) : "none"}</span></div>
+        </div>
+        <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+          <Pill tone={STATUS_TONE[status.status]}>{status.status}</Pill>
+          {ps.rank && <Pill tone="rank">Priority #{ps.rank}</Pill>}
+          {openTaskFor ? (persists ? <button className="btn primary" onClick={() => reopenTask(openTaskFor.id)}>Reopen {openTaskFor.id}</button> : <button className="btn" onClick={() => openTask(openTaskFor.id)}>Open {openTaskFor.id}</button>)
+            : <button className="btn primary" onClick={() => openCreate(siteId, primaryEvent ? primaryEvent.id : null)}>Create investigation</button>}
+        </div>
+      </div>
+
+      {persists && <div className="callout crit"><strong>{openTaskFor.id} is marked Resolved, but the fault is still present in the production data.</strong> The site stays flagged until {C.RULES.RECOVERY_MIN_DAYS} valid days at or above {C.RULES.UNDERPERF_EPI * 100}% of expected confirm recovery. Reopen the investigation to continue work on it.</div>}
+      <div className="kpis">
+        <Kpi label="EPI" value={pct(m.epi)} sub="actual / expected, valid days" tone={m.epi != null && m.epi < 85 ? "crit" : ""} />
+        <Kpi label="Actual" value={num(m.actualKwh) + " kWh"} sub={`${m.validDays} valid days`} />
+        <Kpi label="Expected" value={num(m.expectedKwh) + " kWh"} sub="supplied baseline" />
+        <Kpi label="Shortfall" value={num(m.shortfallKwh) + " kWh"} sub="Σ max(0, expected − actual)" />
+        <Kpi label="Est. value" value={C.money(m.shortfallValue)} sub={`at $${m.energyValue.toFixed(2)}/kWh${site.energyValue != null ? " (site rate)" : ""}, estimate`} tone={m.shortfallValue > 100 ? "warn" : ""} />
+        <Kpi label="Coverage" value={pct(m.coverage)} sub={`${m.validDays}/${m.eligibleDays} days, ${m.missingActual + m.missingBaseline + m.noRecord} missing`} tone={m.coverage != null && m.coverage < 100 ? "warn" : ""} />
+      </div>
+
+      <div className="card">
+        <div className="card-head"><h2>Daily generation, actual vs expected</h2><span className="small faint">{R.dates.length}-day window. Shaded days are rule hits; gaps are missing data.</span></div>
+        <EnergyChart series={series} bands={bands} />
+      </div>
+
+      <div className="grid-2">
+        <div className={"card insight " + tone}>
+          <div className="card-head"><div><div className="eyebrow">Intelligence panel</div><h2>{insight.headline}</h2></div>{primaryEvent && <Pill tone={TONE_BY_RULE[primaryEvent.rule]}>{primaryEvent.rule.replace(/_/g, " ")}</Pill>}</div>
+          <div className="insight-row"><div className="k">Observation</div><div className="v">{insight.observation}</div></div>
+          <div className="insight-row"><div className="k">Evidence</div><div className="v">{insight.evidence}</div></div>
+          <div className="insight-row"><div className="k">Financial exposure</div><div className="v">{insight.exposure}</div></div>
+          <div className="insight-row"><div className="k">Possible explanations</div><div className="v">{insight.explanations.length ? <ul>{insight.explanations.map((x, i) => <li key={i}>{x}</li>)}</ul> : <span className="faint">None required.</span>}</div></div>
+          <div className="insight-row"><div className="k">Recommended next step</div><div className="v" style={{ fontWeight: 500 }}>{insight.nextStep}</div></div>
+          <div className="insight-row"><div className="k">Data limitations</div><div className="v"><ul>{insight.dataLimits.map((x, i) => <li key={i} className="muted">{x}</li>)}</ul></div></div>
+          {primaryEvent && primaryEvent.rankReason && <div className="callout info" style={{ marginTop: 10 }}><strong>Why this rank: </strong>{primaryEvent.rankReason}</div>}
+        </div>
+
+        <div className="stack">
+          <div className="card">
+            <div className="card-head"><h3>Events in this period</h3><span className="small faint">{ps.periodEvents.length}{ps.historicalEvents.length ? ` + ${ps.historicalEvents.length} historical` : ""}</span></div>
+            {ps.periodEvents.length === 0 && <div className="empty">No rule triggered in this period.</div>}
+            <div className="attn">
+              {ps.periodEvents.map((e) => {
+                const t = tasks.find((x) => x.anomalyId === e.id);
+                return (
+                  <div className="attn-item" key={e.id} style={{ gridTemplateColumns: "minmax(0,1fr) auto" }}>
+                    <div>
+                      <div className="title"><Pill tone={TONE_BY_RULE[e.rule]}>{e.rule.replace(/_/g, " ")}</Pill> <LifecyclePill ev={e} /> {t && <Pill tone={TASK_TONE[t.status]}>{t.id} · {t.status}</Pill>} {faultPersists(t, e) && <PersistsPill />}</div>
+                      <div className="meta"><span>{C.fmtDate(e.start)} to {C.fmtDate(e.end)}{e.ongoing ? " (ongoing)" : ""}</span>{e.recoveredOn && <span>recovered {C.fmtDate(e.recoveredOn)}</span>}<span>{e.periodDays} day{e.periodDays === 1 ? "" : "s"} in window</span>{e.kind === "production" && <span>EPI {pct(e.periodEpi)}</span>}{e.kind === "data" && <span>{e.missingActual} missing readings</span>}</div>
+                    </div>
+                    <div style={{ display: "grid", gap: 6, justifyItems: "end" }}>
+                      {e.kind === "production" ? <div className="money">{C.money(e.periodValue)}</div> : <div className="faint small">no loss estimated</div>}
+                      {t ? (faultPersists(t, e) ? <button className="btn sm primary" onClick={() => reopenTask(t.id)}>Reopen</button> : <button className="btn sm" onClick={() => openTask(t.id)}>View</button>) : <button className="btn sm" onClick={() => openCreate(siteId, e.id)}>Investigate</button>}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+            {ps.historicalEvents.length > 0 && (
+              <div style={{ marginTop: 14 }}>
+                <div className="eyebrow" style={{ marginBottom: 6 }}>Historical (recovered before this period)</div>
+                <div className="attn">
+                  {ps.historicalEvents.map((e) => {
+                    const t = C.taskForEvent(e.id, tasks);
+                    return (
+                      <div className="attn-item" key={e.id} style={{ gridTemplateColumns: "minmax(0,1fr) auto" }}>
+                        <div>
+                          <div className="title"><Pill tone={TONE_BY_RULE[e.rule]}>{e.rule.replace(/_/g, " ")}</Pill> <LifecyclePill ev={e} /> {t && <Pill tone={TASK_TONE[t.status]}>{t.id} · {t.status}</Pill>}</div>
+                          <div className="meta"><span>{C.fmtDate(e.start)} to {C.fmtDate(e.end)}</span><span>recovered {C.fmtDate(e.recoveredOn)}</span>{e.kind === "production" && <span>EPI {pct(e.epi)}, {num(e.shortfallKwh)} kWh short</span>}</div>
+                        </div>
+                        {t && <button className="btn sm" onClick={() => openTask(t.id)}>View</button>}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </div>
+          <div className="card">
+            <div className="card-head"><h3>Investigations at this site</h3><span className="small faint">{siteTasks.length}</span></div>
+            {siteTasks.length === 0 && <div className="empty">None yet.</div>}
+            <div className="attn">
+              {siteTasks.map((t) => (
+                <div className="attn-item" key={t.id} style={{ gridTemplateColumns: "minmax(0,1fr) auto" }}>
+                  <div><div className="title"><span className="mono">{t.id}</span> {t.title}</div><div className="meta"><Pill tone={TASK_TONE[t.status]}>{t.status}</Pill><Pill tone={PRIORITY_TONE[t.priority]}>{t.priority}</Pill><span>{t.assignee}</span></div></div>
+                  <button className="btn sm" onClick={() => openTask(t.id)}>Open</button>
+                </div>
+              ))}
+            </div>
+          </div>
+          <div className="card">
+            <h3 style={{ marginBottom: 8 }}>Rules applied</h3>
+            <dl className="kv">
+              <dt>Rule 1</dt><dd>Sustained underperformance: EPI below {C.RULES.UNDERPERF_EPI * 100}% for {C.RULES.UNDERPERF_MIN_DAYS}+ consecutive eligible days (expected above {C.RULES.UNDERPERF_MIN_YIELD} kWh/kWp).</dd>
+              <dt>Rule 2</dt><dd>Possible outage: actual at most {C.RULES.OUTAGE_MAX_RATIO * 100}% of expected when expected is at least {C.RULES.OUTAGE_MIN_YIELD} kWh/kWp.</dd>
+              <dt>Rule 3</dt><dd>Missing data: flagged, excluded from all figures, never zero-filled, no loss estimated.</dd>
+              <dt>Rule 4</dt><dd>Healthy: no rule hit and full coverage.</dd>
+              <dt>Rule 5</dt><dd>Insufficient data: coverage below {C.RULES.INSUFFICIENT_COVERAGE}%.</dd>
+            </dl>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------- Screen C: Maintenance Operations
+function Maintenance({ R, tasks, go, openCreate, openTask, updateTask, reopenTask }) {
+  const [tab, setTab] = useState("All");
+  const [q, setQ] = useState("");
+  const tabs = ["All", ...C.STATUSES];
+  const list = tasks.filter((t) => (tab === "All" ? t.status !== "Resolved" : t.status === tab)).filter((t) => !q || (t.id + " " + t.title + " " + t.siteId + " " + t.assignee).toLowerCase().includes(q.toLowerCase()));
+  const order = { Critical: 0, High: 1, Medium: 2, Low: 3 };
+  list.sort((a, b) => (order[a.priority] - order[b.priority]) || (a.createdAt < b.createdAt ? 1 : -1));
+  const count = (s) => tasks.filter((t) => (s === "All" ? t.status !== "Resolved" : t.status === s)).length;
+  return (
+    <div className="stack">
+      <div className="card">
+        <div className="card-head"><div><h2>Ranked maintenance queue</h2><p className="small faint">Active production anomalies (not yet recovered in the data) in the selected period, ranked by estimated shortfall value. Task status does not remove an item; recovery in the data does. Data gaps are not ranked (no loss estimated).</p></div><span className="small faint">{R.ranked.length} item{R.ranked.length === 1 ? "" : "s"}</span></div>
+        {R.ranked.length === 0 && <div className="empty">Queue is empty for this period.</div>}
+        <div className="attn">
+          {R.ranked.map((ev) => {
+            const site = R.perSite[ev.siteId].site;
+            const task = C.taskForEvent(ev.id, tasks);
+            return (
+              <div className="attn-item" key={ev.id}>
+                <Pill tone="rank">#{ev.rank}</Pill>
+                <div>
+                  <div className="title">{site.name} <span className="faint small mono">{site.id}</span> <Pill tone={TONE_BY_RULE[ev.rule]}>{ev.rule.replace(/_/g, " ")}</Pill>{faultPersists(task, ev) && <> <PersistsPill /></>}</div>
+                  <div className="meta"><span>{C.fmtDate(ev.start)}{ev.ongoing ? " to now" : " to " + C.fmtDate(ev.end)}</span><span>{ev.periodDays}d in window</span><span>{num(ev.periodShortfall)} kWh short</span><span>EPI {pct(ev.periodEpi)}</span></div>
+                  <details className="small" style={{ marginTop: 4 }}><summary className="muted" style={{ cursor: "pointer" }}>Why this rank</summary><p className="muted" style={{ marginTop: 4 }}>{ev.rankReason}</p></details>
+                </div>
+                <div style={{ display: "grid", gap: 6, justifyItems: "end" }}>
+                  <div className="money">{C.money(ev.periodValue)}</div>
+                  <div style={{ display: "flex", gap: 6 }}>
+                    <button className="btn sm" onClick={() => go("site", site.id)}>Site</button>
+                    {task ? (faultPersists(task, ev) ? <button className="btn sm primary" onClick={() => reopenTask(task.id)}>Reopen {task.id}</button> : <button className="btn sm" onClick={() => openTask(task.id)}>{task.id}</button>) : <button className="btn sm primary" onClick={() => openCreate(site.id, ev.id)}>Create task</button>}
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      <div className="card">
+        <div className="card-head">
+          <h2>Investigations and work orders</h2>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            <input type="search" placeholder="Search tasks" value={q} onChange={(e) => setQ(e.target.value)} style={{ width: 200 }} aria-label="Search tasks" />
+            <button className="btn primary" onClick={() => openCreate(null, null)}>New task</button>
+          </div>
+        </div>
+        <div className="tabs" role="tablist" style={{ marginBottom: 10 }}>{tabs.map((s) => <button key={s} role="tab" aria-selected={tab === s} onClick={() => setTab(s)}>{s === "All" ? "Active" : s}<span className="count">{count(s)}</span></button>)}</div>
+        {list.length === 0 && <div className="empty">No tasks here.</div>}
+        {list.length > 0 && (
+          <div className="table-wrap">
+            <table>
+              <thead><tr><th>ID</th><th>Task</th><th>Site</th><th>Priority</th><th>Status</th><th>Assignee</th><th className="r">Shortfall</th><th className="r">Est. cost</th><th>Created</th></tr></thead>
+              <tbody>
+                {list.map((t) => (
+                  <tr key={t.id} className="row-link" tabIndex={0} onClick={() => openTask(t.id)} onKeyDown={(e) => { if (e.key === "Enter") openTask(t.id); }}>
+                    <td className="mono">{t.id}</td>
+                    <td><div className="cell-title">{t.title}</div>{t.notes.length > 0 && <div className="cell-sub">{t.notes.length} note{t.notes.length > 1 ? "s" : ""}</div>}{faultPersists(t, R.perSite[t.siteId] && R.perSite[t.siteId].events.find((e) => e.id === t.anomalyId)) && <div style={{ marginTop: 4 }}><PersistsPill /></div>}</td>
+                    <td className="mono">{t.siteId}</td>
+                    <td><Pill tone={PRIORITY_TONE[t.priority]}>{t.priority}</Pill></td>
+                    <td><select value={t.status} onChange={(e) => updateTask(t.id, { status: e.target.value })} onClick={(e) => e.stopPropagation()} aria-label="Status" style={{ width: "auto", padding: "3px 6px", fontSize: "0.8rem" }}>{C.STATUSES.map((s) => <option key={s}>{s}</option>)}</select></td>
+                    <td className="small">{t.assignee}</td>
+                    <td className="r mono">{t.shortfallKwh != null ? num(t.shortfallKwh) + " kWh" : "n/a"}</td>
+                    <td className="r mono">{t.estimatedCost != null && t.estimatedCost !== "" ? C.money(t.estimatedCost) : "n/a"}</td>
+                    <td className="small mono">{C.fmtDate(t.createdAt)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------- Create Investigation dialog
+function CreateDialog({ R, tasks, siteId: initialSite, anomalyId: initialAnomaly, onClose, onCreate }) {
+  const team = useContext(TeamCtx);
+  const siteList = Object.values(R.perSite).map((p) => p.site);
+  const [siteId, setSiteId] = useState(initialSite || (siteList[0] && siteList[0].id));
+  const ps = R.perSite[siteId];
+  const options = ps.periodEvents.filter((e) => C.canCreateTask(e.id, tasks));
+  const [anomalyId, setAnomalyId] = useState(initialAnomaly && options.some((e) => e.id === initialAnomaly) ? initialAnomaly : (options[0] ? options[0].id : ""));
+  const ev = options.find((e) => e.id === anomalyId) || null;
+  const build = (ev) => {
+    if (!ev) return { title: `Manual check at ${ps.site.name}`, description: "", priority: "Medium" };
+    const ins = C.buildInsight({ site: ps.site, metrics: ps.metrics, event: ev, status: ps.status, settings: R.settings });
+    return { title: `${ev.label.split(",")[0]} at ${ps.site.name}`, description: `${ins.observation}\n\n${ins.evidence}`, priority: C.defaultPriority(ev) };
+  };
+  const [form, setForm] = useState(() => Object.assign({ assignee: team[0], estimatedCost: "", note: "" }, build(ev)));
+  useEffect(() => { setForm((f) => Object.assign({}, f, build(ev))); }, [anomalyId, siteId]);
+  const set = (k) => (e) => setForm((f) => Object.assign({}, f, { [k]: e.target.value }));
+  const submit = (e) => {
+    e.preventDefault();
+    if (!form.title.trim()) return;
+    onCreate({
+      siteId, anomalyId: ev ? ev.id : null, title: form.title.trim(), description: form.description, priority: form.priority, assignee: form.assignee,
+      estimatedCost: form.estimatedCost === "" ? null : Number(form.estimatedCost), shortfallKwh: ev && ev.kind === "production" ? ev.periodShortfall : null,
+      shortfallValue: ev && ev.kind === "production" ? ev.periodValue : null, notes: form.note.trim() ? [{ date: todayISO(), text: form.note.trim() }] : [],
+    });
+  };
+  return (
+    <Overlay onClose={onClose}>
+      <DialogHead title="Create investigation" sub="Prefilled from the detected anomaly. Edit anything before saving." onClose={onClose} />
+      <form onSubmit={submit} className="fields">
+        <div className="fields two">
+          <label className="field">Site<select value={siteId} onChange={(e) => { setSiteId(e.target.value); setAnomalyId(""); }}>{siteList.map((s) => <option key={s.id} value={s.id}>{s.id} · {s.name}</option>)}</select></label>
+          <label className="field">Linked anomaly<select value={anomalyId} onChange={(e) => setAnomalyId(e.target.value)}><option value="">None (manual task)</option>{options.map((e) => <option key={e.id} value={e.id}>{e.rule.replace(/_/g, " ")}, {C.fmtDate(e.start)}{e.ongoing ? ", ongoing" : ""}</option>)}</select></label>
+        </div>
+        {ev && ev.kind === "production" && <div className="callout warn"><strong>Impact in selected period: </strong>{num(ev.periodShortfall)} kWh shortfall, {C.money(ev.periodValue)} at ${R.settings.energyValue.toFixed(2)}/kWh (illustrative). EPI {pct(ev.periodEpi)} over {ev.periodDays} day{ev.periodDays === 1 ? "" : "s"}.</div>}
+        {ev && ev.kind === "data" && <div className="callout info"><strong>Data gap: </strong>{ev.missingActual} missing reading{ev.missingActual === 1 ? "" : "s"} from {C.fmtDate(ev.start)}. No loss estimated.</div>}
+        <label className="field">Title<input type="text" value={form.title} onChange={set("title")} required /></label>
+        <label className="field">Description<textarea value={form.description} onChange={set("description")} style={{ fontFamily: "var(--f-body)", fontSize: "0.86rem" }} /></label>
+        <div className="fields two">
+          <label className="field">Priority<select value={form.priority} onChange={set("priority")}>{C.PRIORITIES.map((p) => <option key={p}>{p}</option>)}</select></label>
+          <label className="field">Assign to<select value={form.assignee} onChange={set("assignee")}>{team.map((p) => <option key={p}>{p}</option>)}</select></label>
+          <label className="field">Estimated cost (USD)<input type="number" min="0" step="1" value={form.estimatedCost} onChange={set("estimatedCost")} placeholder="optional" /></label>
+          <label className="field">First note<input type="text" value={form.note} onChange={set("note")} placeholder="optional" /></label>
+        </div>
+        <div className="actions"><button type="button" className="btn" onClick={onClose}>Cancel</button><button type="submit" className="btn primary">Create {C.newTaskId(tasks)}</button></div>
+      </form>
+    </Overlay>
+  );
+}
+
+// ---------------------------------------------------------------- Task drawer (edit, notes, resolve/reopen, delete)
+function TaskDrawer({ task, R, onClose, onUpdate, onDelete, go }) {
+  const [note, setNote] = useState("");
+  const [confirmDel, setConfirmDel] = useState(false);
+  const team = useContext(TeamCtx);
+  const site = R.perSite[task.siteId] ? R.perSite[task.siteId].site : null;
+  const ev = R.perSite[task.siteId] ? R.perSite[task.siteId].events.find((e) => e.id === task.anomalyId) : null;
+  const set = (k) => (e) => onUpdate(task.id, { [k]: e.target.value });
+  const addNote = () => { if (!note.trim()) return; onUpdate(task.id, { notes: [...task.notes, { date: todayISO(), text: note.trim() }] }); setNote(""); };
+  return (
+    <Overlay onClose={onClose} drawer>
+      <DialogHead title={<span><span className="mono faint" style={{ fontWeight: 400, marginRight: 8 }}>{task.id}</span>{task.title}</span>} sub={`${site ? site.name : task.siteId} · created ${C.fmtDateLong(task.createdAt)}${task.resolvedAt ? " · resolved " + C.fmtDateLong(task.resolvedAt) : ""}`} onClose={onClose} />
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+        <Pill tone={TASK_TONE[task.status]}>{task.status}</Pill><Pill tone={PRIORITY_TONE[task.priority]}>{task.priority}</Pill>
+        <button className="btn sm" onClick={() => { onClose(); go("site", task.siteId); }}>View site</button>
+        {task.status === "Resolved"
+          ? <button className="btn sm" onClick={() => onUpdate(task.id, { status: "Open", resolvedAt: null })}>Reopen</button>
+          : <button className="btn sm primary" onClick={() => onUpdate(task.id, { status: "Resolved", resolvedAt: todayISO() })}>Mark resolved</button>}
+      </div>
+      {faultPersists(task, ev) && <div className="callout crit small"><strong>Fault still present.</strong> This task is Resolved, but production data still shows the anomaly. Reopen it to continue the investigation.</div>}
+      {ev && ev.kind === "production" && <div className={"callout small " + (ev.recovered ? "good" : "warn")}><strong>Linked anomaly ({ev.lifecycle}): </strong>{ev.label}. {C.fmtDate(ev.start)} to {C.fmtDate(ev.end)}{ev.ongoing ? " (ongoing)" : ""}, EPI {pct(ev.epi)}, {num(ev.shortfallKwh)} kWh shortfall over the whole event. {ev.recovered ? `Recovery confirmed by production data on ${C.fmtDate(ev.recoveredOn)}.` : `Task status does not change the anomaly. It leaves the ranked queue only when ${C.RULES.RECOVERY_MIN_DAYS} valid days at or above ${C.RULES.UNDERPERF_EPI * 100}% of expected confirm recovery.`}</div>}
+      {ev && ev.kind === "data" && <div className="callout info small"><strong>Linked data gap: </strong>{C.fmtDate(ev.start)} to {C.fmtDate(ev.end)}, {ev.missingActual} missing readings.</div>}
+      <div className="fields">
+        <label className="field">Title<input type="text" value={task.title} onChange={set("title")} /></label>
+        <label className="field">Description<textarea value={task.description || ""} onChange={set("description")} style={{ fontFamily: "var(--f-body)", fontSize: "0.86rem" }} /></label>
+        <div className="fields two">
+          <label className="field">Status<select value={task.status} onChange={(e) => onUpdate(task.id, { status: e.target.value, resolvedAt: e.target.value === "Resolved" ? (task.resolvedAt || todayISO()) : null })}>{C.STATUSES.map((s) => <option key={s}>{s}</option>)}</select></label>
+          <label className="field">Priority<select value={task.priority} onChange={set("priority")}>{C.PRIORITIES.map((p) => <option key={p}>{p}</option>)}</select></label>
+          <label className="field">Assignee<select value={task.assignee} onChange={set("assignee")}>{(team.includes(task.assignee) ? team : [...team, task.assignee]).map((p) => <option key={p}>{p}</option>)}</select></label>
+          <label className="field">Estimated cost (USD)<input type="number" min="0" step="1" value={task.estimatedCost == null ? "" : task.estimatedCost} onChange={(e) => onUpdate(task.id, { estimatedCost: e.target.value === "" ? null : Number(e.target.value) })} /></label>
+        </div>
+        {task.shortfallKwh != null && <dl className="kv"><dt>Shortfall at creation</dt><dd className="mono">{num(task.shortfallKwh)} kWh{task.shortfallValue != null ? ` (${C.money(task.shortfallValue)})` : ""}</dd>{task.estimatedCost != null && task.shortfallValue != null && <React.Fragment><dt>Cost vs exposure</dt><dd className="mono">{task.estimatedCost <= task.shortfallValue ? "cost below period exposure" : "cost exceeds period exposure"}</dd></React.Fragment>}</dl>}
+      </div>
+      <div>
+        <h3 style={{ marginBottom: 8 }}>Notes <span className="faint small">({task.notes.length})</span></h3>
+        <div className="notes">
+          {task.notes.map((n, i) => <div className="note" key={i}><div className="d">{C.fmtDateLong(n.date)}</div>{n.text}</div>)}
+          <div style={{ display: "flex", gap: 8 }}><input type="text" value={note} onChange={(e) => setNote(e.target.value)} placeholder="Add a note" onKeyDown={(e) => { if (e.key === "Enter") addNote(); }} /><button className="btn" onClick={addNote} disabled={!note.trim()}>Add</button></div>
+        </div>
+      </div>
+      <div className="actions" style={{ justifyContent: "space-between" }}>
+        {confirmDel ? <span style={{ display: "flex", gap: 8, alignItems: "center" }} className="small"><span className="muted">Delete {task.id} permanently?</span><button className="btn sm danger" onClick={() => onDelete(task.id)}>Delete</button><button className="btn sm" onClick={() => setConfirmDel(false)}>Keep</button></span>
+          : <button className="btn sm danger" onClick={() => setConfirmDel(true)}>Delete task</button>}
+        <button className="btn" onClick={onClose}>Done</button>
+      </div>
+    </Overlay>
+  );
+}
+
+// ---------------------------------------------------------------- CSV import dialog
+function ImportDialog({ records, imports, siteIds, sample, cloud, onClose, onImport, onClearImports, toast }) {
+  const [text, setText] = useState("");
+  const [result, setResult] = useState(null);
+  const [policy, setPolicy] = useState("overwrite");
+  const [fileName, setFileName] = useState("");
+  const ids = siteIds;
+  const validate = (t) => { const r = C.validateImport(t, ids, records); setResult(r); return r; };
+  const onFile = (e) => {
+    const f = e.target.files && e.target.files[0]; if (!f) return;
+    setFileName(f.name);
+    const reader = new FileReader();
+    reader.onload = () => { const t = String(reader.result || ""); setText(t); validate(t); };
+    reader.readAsText(f);
+  };
+  const confirm = () => {
+    if (!result || !result.ok) return;
+    const existing = new Set(records.map((r) => r.siteId + "|" + r.date));
+    const recs = policy === "skip" ? result.records.filter((r) => !existing.has(r.siteId + "|" + r.date)) : result.records;
+    onImport(recs, result.records.length - recs.length);
+  };
+  const preview = result ? result.records.slice(0, 15) : [];
+  return (
+    <Overlay onClose={onClose} wide>
+      <DialogHead title="Import production data (CSV)" sub="Required columns: date, site_id, actual_kwh, expected_kwh. Optional: inverter_id, alarm_code, data_source. One row per site per day. Leave actual_kwh blank for a missing reading (it is never treated as zero)." onClose={onClose} />
+      <div className="fields two">
+        <label className="field">Upload file<input type="file" accept=".csv,text/csv,text/plain" onChange={onFile} />{fileName && <span className="small faint">{fileName}</span>}</label>
+        <div className="field">Sample<div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}><button className="btn sm" onClick={() => { setText(sample); validate(sample); setFileName(""); }}>Load sample into editor</button><button className="btn sm" onClick={async () => toast((await copyText(sample)) ? "Sample CSV copied to clipboard" : "Copy blocked by browser; select the text in the editor instead")}>Copy sample CSV</button></div></div>
+      </div>
+      {cloud && <div className="callout info small">Rows are saved to your organization's database (source: csv_import). The server then re-runs the SolarOps analysis for the affected sites. CSV import is the backup path; connected monitoring is the primary one.</div>}
+      <label className="field">Or paste CSV text<textarea value={text} onChange={(e) => { setText(e.target.value); setResult(null); }} placeholder={"date,site_id,actual_kwh,expected_kwh\n2026-11-10,MIA-01,1842.5,1910.2"} /></label>
+      <div className="actions" style={{ justifyContent: "flex-start" }}><button className="btn" onClick={() => validate(text)} disabled={!text.trim()}>Validate</button>{imports.length > 0 && <button className="btn" onClick={onClearImports}>Remove {imports.length} previously imported row{imports.length === 1 ? "" : "s"}</button>}</div>
+      {result && (
+        <div className="stack" style={{ display: "grid", gap: 10 }}>
+          {result.errors.length > 0 && <div className="callout crit"><strong>{result.errors.length} error{result.errors.length === 1 ? "" : "s"}. Nothing will be imported until these are fixed.</strong><ul style={{ margin: "6px 0 0", paddingLeft: 18 }}>{result.errors.slice(0, 12).map((e, i) => <li key={i}>{e}</li>)}{result.errors.length > 12 && <li>and {result.errors.length - 12} more</li>}</ul></div>}
+          {result.warnings.length > 0 && <div className="callout warn"><strong>{result.warnings.length} warning{result.warnings.length === 1 ? "" : "s"}</strong><ul style={{ margin: "6px 0 0", paddingLeft: 18 }}>{result.warnings.slice(0, 8).map((e, i) => <li key={i}>{e}</li>)}</ul></div>}
+          {result.ok && <div className="callout good"><strong>{result.records.length} valid row{result.records.length === 1 ? "" : "s"}.</strong> {result.overwrites > 0 ? `${result.overwrites} match existing site-days.` : "No conflicts with existing data."}</div>}
+          {result.ok && result.overwrites > 0 && (
+            <div className="fields" style={{ gap: 4 }}>
+              <div className="eyebrow">Existing site-days</div>
+              <label className="small"><input type="radio" name="pol" checked={policy === "overwrite"} onChange={() => setPolicy("overwrite")} /> Overwrite existing values with the file ({result.overwrites})</label>
+              <label className="small"><input type="radio" name="pol" checked={policy === "skip"} onChange={() => setPolicy("skip")} /> Keep existing values, import only new site-days ({result.records.length - result.overwrites})</label>
+            </div>
+          )}
+          {preview.length > 0 && (
+            <div className="table-wrap" style={{ maxHeight: 240, overflowY: "auto" }}>
+              <table><thead><tr><th>Date</th><th>Site</th><th className="r">Actual kWh</th><th className="r">Expected kWh</th><th>Quality</th><th>Source</th></tr></thead>
+                <tbody>{preview.map((r, i) => <tr key={i}><td className="mono">{r.date}</td><td className="mono">{r.siteId}</td><td className="r mono">{r.actualKwh == null ? <span className="faint">missing</span> : r.actualKwh}</td><td className="r mono">{r.expectedKwh == null ? <span className="faint">none</span> : r.expectedKwh}</td><td><Pill tone={r.quality === "valid" ? "good" : "info"}>{r.quality.replace(/_/g, " ")}</Pill></td><td className="small">{r.dataSource}</td></tr>)}</tbody></table>
+              {result.records.length > 15 && <p className="small faint" style={{ padding: 8 }}>Showing 15 of {result.records.length} rows.</p>}
+            </div>
+          )}
+        </div>
+      )}
+      <div className="actions"><button className="btn" onClick={onClose}>Cancel</button><button className="btn primary" disabled={!result || !result.ok} onClick={confirm}>Import {result && result.ok ? result.records.length + " rows" : ""}</button></div>
+    </Overlay>
+  );
+}
+
+// ---------------------------------------------------------------- Settings dialog
+// Settings: demo version keeps the v1 behaviour; cloud version adds organization, sites, monitoring and team.
+function SettingsDialog({ store, onClose, toast }) {
+  const cloud = store.mode === "cloud";
+  const [tab, setTab] = useState("general");
+  const [price, setPrice] = useState(String(store.settings.energyValue));
+  const [confirmReset, setConfirmReset] = useState(false);
+  const canManage = !cloud || ["owner", "admin"].includes(store.role);
+  const apply = async () => {
+    const v = Number(price);
+    if (!Number.isFinite(v) || v < 0) return;
+    try { await store.updateSettings({ energyValue: v }); toast(`Energy value set to $${v.toFixed(2)}/kWh${cloud ? " and saved for the organization" : ""}. All figures recalculated.`); }
+    catch (e) { toast("Could not save: " + e.message); }
+  };
+  const tabs = cloud ? [["general", "General"], ["sites", "Sites"], ["monitoring", "Monitoring"], ["team", "Team"]] : [["general", "General"]];
+  return (
+    <Overlay onClose={onClose} wide={cloud}>
+      <DialogHead title="Settings" sub={cloud ? `${store.org.name}${store.org.is_demo ? " (demo organization)" : ""} · your role: ${store.role}` : null} onClose={onClose} />
+      {cloud && <div className="tabs" role="tablist">{tabs.map(([k, l]) => <button key={k} role="tab" aria-selected={tab === k} onClick={() => setTab(k)}>{l}</button>)}</div>}
+      {tab === "general" && (
+        <div className="fields">
+          <label className="field">Energy value, USD per kWh (illustrative; used for every $ figure unless a site overrides it)
+            <div style={{ display: "flex", gap: 8 }}><input type="number" min="0" step="0.01" value={price} disabled={!canManage} onChange={(e) => setPrice(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") apply(); }} /><button className="btn primary" disabled={!canManage} onClick={apply}>Apply</button></div>
+          </label>
+          <p className="small muted">Shortfall value = Σ max(0, expected − actual) × this rate, over valid days only. It is an estimate for comparing sites, not a revenue statement, and a past shortfall is not recoverable future revenue. Real tariffs, PPA prices, demand charges and net-metering terms differ by site.</p>
+          {!cloud && <div className="callout info small">Stored locally in this browser: {store.tasks.length} task{store.tasks.length === 1 ? "" : "s"}, {store.imports.length} imported row{store.imports.length === 1 ? "" : "s"}, this rate, and the selected period. Nothing is sent anywhere.</div>}
+          {cloud && <div className="callout info small">Saved in your organization's Supabase database and shared by every member. Access is limited to members of {store.org.name} by row-level security.</div>}
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            {!cloud && <button className="btn" onClick={async () => toast((await copyText(JSON.stringify({ tasks: store.tasks, imports: store.imports, settings: store.settings }, null, 2))) ? "Tasks, imports and settings copied as JSON" : "Copy blocked by browser")}>Copy all data as JSON</button>}
+            {!cloud && (confirmReset ? <span style={{ display: "flex", gap: 8, alignItems: "center" }} className="small"><span className="muted">Delete all tasks and imports and restore the seed?</span><button className="btn sm danger" onClick={store.reset}>Reset</button><button className="btn sm" onClick={() => setConfirmReset(false)}>Keep</button></span>
+              : <button className="btn danger" onClick={() => setConfirmReset(true)}>Reset demo data</button>)}
+            {cloud && store.memberships.length > 1 && (
+              <label className="field" style={{ minWidth: 240 }}>Switch organization
+                <select value={store.org.id} onChange={(e) => store.switchOrg(e.target.value)}>{store.memberships.map((m) => <option key={m.organization_id} value={m.organization_id}>{m.organizations.name}{m.organizations.is_demo ? " (demo)" : ""}</option>)}</select>
+              </label>)}
+            {cloud && <button className="btn" onClick={store.newOrganization}>New organization</button>}
+            {cloud && <button className="btn" onClick={store.signOut}>Sign out {store.email}</button>}
+          </div>
+        </div>)}
+      {tab === "sites" && <SitesPanel store={store} canManage={canManage} toast={toast} />}
+      {tab === "monitoring" && <MonitoringPanel store={store} canManage={canManage} toast={toast} />}
+      {tab === "team" && <TeamPanel store={store} toast={toast} />}
+      <div className="actions"><button className="btn" onClick={onClose}>Close</button></div>
+    </Overlay>
+  );
+}
+
+function SitesPanel({ store, canManage, toast }) {
+  const blank = { uuid: null, code: "", name: "", type: "", city: "", state: "FL", capacityKwp: "", inverter: "", commissioned: "", energyValue: "" };
+  const [form, setForm] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const set = (k) => (e) => setForm((f) => Object.assign({}, f, { [k]: e.target.value }));
+  const edit = (s) => setForm({ uuid: s.uuid, code: s.id, name: s.name, type: s.type, city: s.city, state: s.state, capacityKwp: String(s.capacityKwp), inverter: s.inverter, commissioned: s.commissioned, energyValue: s.energyValue == null ? "" : String(s.energyValue) });
+  const submit = async (e) => {
+    e.preventDefault();
+    setBusy(true);
+    try { await store.saveSite(form); toast(`${form.code.toUpperCase()} saved.`); setForm(null); }
+    catch (err) { toast("Could not save site: " + err.message); }
+    finally { setBusy(false); }
+  };
+  return (
+    <div className="fields">
+      {store.sites.length === 0 && <div className="empty">No sites yet.</div>}
+      {store.sites.length > 0 && (
+        <div className="table-wrap"><table>
+          <thead><tr><th>Code</th><th>Name</th><th>City</th><th className="r">kWp</th><th>Inverter</th><th>Commissioned</th><th className="r">$/kWh</th><th></th></tr></thead>
+          <tbody>{store.sites.map((s) => (
+            <tr key={s.uuid}><td className="mono">{s.id}</td><td>{s.name}</td><td className="small">{s.city}{s.state ? ", " + s.state : ""}</td><td className="r mono">{s.capacityKwp}</td><td className="small">{s.inverter}</td><td className="small mono">{s.commissioned}</td><td className="r mono">{s.energyValue == null ? <span className="faint">org default</span> : s.energyValue.toFixed(2)}</td>
+              <td>{canManage && <button className="btn sm" onClick={() => edit(s)}>Edit</button>}</td></tr>))}</tbody>
+        </table></div>)}
+      {canManage && !form && <div><button className="btn primary" onClick={() => setForm(blank)}>Add site</button></div>}
+      {!canManage && <p className="small faint">Only owners and admins can add or edit sites.</p>}
+      {form && (
+        <form onSubmit={submit} className="card fields" style={{ background: "var(--surface-2)" }}>
+          <h3>{form.uuid ? `Edit ${form.code}` : "New site"}</h3>
+          <div className="fields two">
+            <label className="field">Site code (e.g. MIA-01)<input type="text" value={form.code} onChange={set("code")} required pattern={"[A-Za-z0-9][A-Za-z0-9\\-]{1,15}"} /></label>
+            <label className="field">Name<input type="text" value={form.name} onChange={set("name")} required /></label>
+            <label className="field">Site type<input type="text" value={form.type} onChange={set("type")} placeholder="e.g. Retail Plaza" /></label>
+            <label className="field">Inverter manufacturer<input type="text" value={form.inverter} onChange={set("inverter")} placeholder="e.g. SolarEdge" /></label>
+            <label className="field">City<input type="text" value={form.city} onChange={set("city")} /></label>
+            <label className="field">State<input type="text" value={form.state} onChange={set("state")} /></label>
+            <label className="field">DC capacity (kWp)<input type="number" min="0.01" step="0.01" value={form.capacityKwp} onChange={set("capacityKwp")} required /></label>
+            <label className="field">Commissioning date<input type="text" value={form.commissioned} onChange={set("commissioned")} required pattern="\d{4}-\d{2}-\d{2}" placeholder="YYYY-MM-DD" /></label>
+            <label className="field">Energy value override, $/kWh (blank = organization default)<input type="number" min="0" step="0.01" value={form.energyValue} onChange={set("energyValue")} /></label>
+          </div>
+          <div className="actions"><button type="button" className="btn" onClick={() => setForm(null)}>Cancel</button><button type="submit" className="btn primary" disabled={busy}>{busy ? "Saving…" : "Save site"}</button></div>
+        </form>)}
+    </div>
+  );
+}
+
+function MonitoringPanel({ store, canManage, toast }) {
+  const [busy, setBusy] = useState(null);
+  const sync = async (c) => {
+    setBusy(c.id);
+    try {
+      const r = await store.syncNow(c.id);
+      toast(r.status === "failed" ? `Sync failed: ${r.error}` : `Sync ${r.status}: ${r.inserted} new, ${r.updated} updated, ${r.unchanged} unchanged, ${r.rejected} rejected; ${r.sites_analyzed} site(s) re-analyzed.`);
+    } catch (e) { toast("Sync failed: " + e.message); }
+    finally { setBusy(null); }
+  };
+  const siteName = (uuid) => (store.sites.find((s) => s.uuid === uuid) || {}).id || "?";
+  const ts = (v) => (v ? new Date(v).toLocaleString() : "never");
+  return (
+    <div className="fields">
+      <div className="callout info small">Production data should arrive automatically: manufacturer cloud → authorized API → SolarOps backend → analysis. A scheduled job syncs every active connection daily at 07:17 UTC. CSV import remains as a backup.</div>
+      {store.connections.length === 0 && <div className="empty">No monitoring connections. {store.org.is_demo ? "" : "Live manufacturer connectors (SolarEdge first) require API authorization from the site owner and are not available yet."}</div>}
+      {store.connections.map((c) => {
+        const maps = store.connectionSites.filter((m) => m.connection_id === c.id);
+        return (
+          <div className="card" key={c.id}>
+            <div className="card-head">
+              <div><h3>{c.display_name || c.provider}</h3><div className="small faint">Provider: {c.provider}{c.provider === "mock" ? " · MOCK CONNECTOR, synthetic data, not a real manufacturer API" : ""}</div></div>
+              <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                <Pill tone={c.connection_status === "active" ? "good" : c.connection_status === "error" ? "crit" : "neutral"}>{c.connection_status.replace(/_/g, " ")}</Pill>
+                {canManage && <button className="btn sm primary" disabled={busy === c.id} onClick={() => sync(c)}>{busy === c.id ? "Syncing…" : "Sync now"}</button>}
+              </div>
+            </div>
+            <dl className="kv"><dt>Last successful sync</dt><dd>{ts(c.last_successful_sync)}</dd><dt>Last attempt</dt><dd>{ts(c.last_sync_attempt)}</dd>{c.last_error && <><dt>Last error</dt><dd style={{ color: "var(--crit)" }}>{c.last_error}</dd></>}<dt>Mapped sites</dt><dd className="mono small">{maps.map((m) => `${siteName(m.site_id)} ← ${m.external_site_id}`).join(" · ") || "none"}</dd></dl>
+          </div>);
+      })}
+      {store.syncRuns.length > 0 && (
+        <div className="table-wrap"><table>
+          <thead><tr><th>Started</th><th>Trigger</th><th>Status</th><th>Window</th><th className="r">New</th><th className="r">Updated</th><th className="r">Unchanged</th><th className="r">Rejected</th><th className="r">Sites analyzed</th></tr></thead>
+          <tbody>{store.syncRuns.map((r) => (
+            <tr key={r.id} title={(r.rejection_reasons || []).join("\n") || r.error || ""}><td className="small">{ts(r.started_at)}</td><td className="small">{r.trigger_source}</td><td><Pill tone={r.status === "succeeded" ? "good" : r.status === "failed" ? "crit" : r.status === "partial" ? "warn" : "neutral"}>{r.status}</Pill></td><td className="small mono">{r.window_start} → {r.window_end}</td><td className="r mono">{r.records_inserted}</td><td className="r mono">{r.records_updated}</td><td className="r mono">{r.records_unchanged}</td><td className="r mono">{r.records_rejected}</td><td className="r mono">{r.sites_analyzed}</td></tr>))}</tbody>
+        </table></div>)}
+    </div>
+  );
+}
+
+function TeamPanel({ store, toast }) {
+  const [email, setEmail] = useState("");
+  const [role, setRole] = useState("member");
+  const canAdd = ["owner", "admin"].includes(store.role);
+  const add = async (e) => {
+    e.preventDefault();
+    try { await store.addMember(email, role); toast(`${email} added as ${role}.`); setEmail(""); }
+    catch (err) { toast("Could not add member: " + err.message); }
+  };
+  return (
+    <div className="fields">
+      <div className="table-wrap"><table><thead><tr><th>Member</th><th>Role</th></tr></thead>
+        <tbody>{store.members.map((m) => <tr key={m.user_id}><td>{D.memberLabel(m)}{m.user_id === store.userId ? " (you)" : ""}</td><td><Pill tone={m.role === "owner" ? "good" : "neutral"}>{m.role}</Pill></td></tr>)}</tbody></table></div>
+      <p className="small faint">Roles live on the organization membership, which only server functions can change. Owners and admins manage sites, settings and connections; members manage data imports and investigations; viewers can only read.</p>
+      {canAdd && (
+        <form onSubmit={add} className="fields two">
+          <label className="field">Add an existing SolarOps account by email<input type="text" value={email} onChange={(e) => setEmail(e.target.value)} required placeholder="name@company.com" /></label>
+          <label className="field">Role<select value={role} onChange={(e) => setRole(e.target.value)}>{(store.role === "owner" ? ["viewer", "member", "admin", "owner"] : ["viewer", "member"]).map((r) => <option key={r}>{r}</option>)}</select></label>
+          <div><button className="btn primary" type="submit">Add member</button></div>
+        </form>)}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------- Stores
+// Demo store: v1 behaviour, synthetic data, browser storage only.
+function useDemoStore() {
+  const demo = useMemo(() => C.generateDemoRecords(), []);
+  const [settings, setSettings] = useState(() => Object.assign({}, C.DEFAULT_SETTINGS, load(KEYS.settings, {})));
+  const [periodDays, setPeriodDays] = useState(() => { const p = load(KEYS.period, 30); return [7, 30, 90].includes(p) ? p : 30; });
+  const [imports, setImports] = useState(() => load(KEYS.imports, []));
+  const [tasks, setTasks] = useState(() => { const t = load(KEYS.tasks, null); return Array.isArray(t) ? t : C.seedTasks(demo); });
+  const [persistOk, setPersistOk] = useState(true);
+  useEffect(() => { setPersistOk(save(KEYS.tasks, tasks)); }, [tasks]);
+  useEffect(() => { save(KEYS.settings, settings); }, [settings]);
+  useEffect(() => { save(KEYS.imports, imports); }, [imports]);
+  useEffect(() => { save(KEYS.period, periodDays); }, [periodDays]);
+  const records = useMemo(() => C.mergeRecords(demo, imports), [demo, imports]);
+  const endDate = useMemo(() => records.reduce((mx, r) => (r.date > mx ? r.date : mx), C.DEMO_END), [records]);
+  return {
+    mode: "demo", ready: true, sites: C.SITES, records, tasks, settings, imports, team: C.TEAM, endDate, periodDays, setPeriodDays, persistOk, saving: 0,
+    sample: C.sampleCSV(),
+    createTask: async (data) => {
+      if (!C.canCreateTask(data.anomalyId, tasks)) return { existingId: C.taskForEvent(data.anomalyId, tasks).id };
+      const id = C.newTaskId(tasks);
+      setTasks((ts) => [...ts, Object.assign({ id, status: "Open", createdAt: todayISO(), resolvedAt: null, notes: [] }, data)]);
+      return { id };
+    },
+    updateTask: (id, patch) => setTasks((ts) => ts.map((t) => (t.id === id ? Object.assign({}, t, patch) : t))),
+    deleteTask: async (id) => setTasks((ts) => ts.filter((t) => t.id !== id)),
+    importRecords: async (recs) => setImports((im) => C.mergeRecords(im, recs)),
+    clearImports: () => setImports([]),
+    updateSettings: async (patch) => setSettings((x) => Object.assign({}, x, patch)),
+    reset: () => { setTasks(C.seedTasks(demo)); setImports([]); setSettings(Object.assign({}, C.DEFAULT_SETTINGS)); setPeriodDays(30); },
+  };
+}
+
+// Cloud store: the organization's Supabase data is the source of truth; the engine runs on what was loaded.
+const TEXT_FIELDS = ["title", "description", "estimatedCost"];
+function useCloudStore(sb, identity, orgId, actions) {
+  const [ws, setWs] = useState(null);
+  const [tasks, setTasks] = useState([]);
+  const [error, setError] = useState(null);
+  const [saving, setSaving] = useState(0);
+  const [periodDays, setPeriodDays] = useState(() => { const p = load(KEYS.period + "." + orgId, 30); return [7, 30, 90].includes(p) ? p : 30; });
+  useEffect(() => { save(KEYS.period + "." + orgId, periodDays); }, [periodDays, orgId]);
+  const pending = useRef({});      // taskId -> { patch, timer }
+  const wsRef = useRef(null);
+  const reload = useCallback(async () => {
+    try { const w = await D.loadWorkspace(sb, orgId); wsRef.current = w; setWs(w); setTasks(w.tasks); setError(null); return w; }
+    catch (e) { setError(e.message); return null; }
+  }, [sb, orgId]);
+  useEffect(() => { reload(); }, [reload]);
+  const track = async (fn) => { setSaving((n) => n + 1); try { return await fn(); } finally { setSaving((n) => n - 1); } };
+  const flush = (taskId) => {
+    const p = pending.current[taskId]; if (!p) return;
+    clearTimeout(p.timer); delete pending.current[taskId];
+    const t = wsRef.current.tasks.find((x) => x.id === taskId) || tasks.find((x) => x.id === taskId);
+    track(() => D.updateTask(sb, p.uuid, p.patch, wsRef.current.team)).then(() => reload()).catch((e) => { actions.toast("Could not save " + taskId + ": " + e.message); reload(); });
+  };
+  useEffect(() => () => Object.keys(pending.current).forEach(flush), []);
+  if (!ws) return { mode: "cloud", ready: false, error, reload };
+  const records = ws.records;
+  const endDate = records.reduce((mx, r) => (r.date > mx ? r.date : mx), "") || C.addDays(todayISO(), -1);
+  const siteCodes = ws.sites.map((s) => s.id);
+  const sample = ["date,site_id,actual_kwh,expected_kwh,inverter_id,alarm_code,data_source"].concat(
+    ws.sites.slice(0, 3).map((s, i) => `${C.addDays(endDate, 1)},${s.id},${(s.capacityKwp * 4.1).toFixed(1)},${(s.capacityKwp * 4.3).toFixed(1)},,,portal_export`)).join("\n");
+  const role = (identity.memberships.find((m) => m.organization_id === orgId) || {}).role;
+  return {
+    mode: "cloud", ready: true, error, saving, reload, org: ws.org, role, userId: identity.user.id, email: identity.user.email,
+    memberships: identity.memberships, members: ws.members, sites: ws.sites, records, tasks, settings: ws.settings, imports: [], team: ws.team,
+    endDate, periodDays, setPeriodDays, persistOk: true, connections: ws.connections, connectionSites: ws.connectionSites, syncRuns: ws.syncRuns,
+    sample: ws.sites.length ? sample : "date,site_id,actual_kwh,expected_kwh\n", siteCodes,
+    createTask: (data) => track(async () => {
+      const existing = C.taskForEvent(data.anomalyId, tasks);
+      if (data.anomalyId && existing) return { existingId: existing.id };
+      const row = await D.createTask(sb, wsRef.current, data);
+      await reload();
+      return { id: "INV-" + String(row.task_number).padStart(3, "0") };
+    }),
+    updateTask: (id, patch) => {
+      const t = tasks.find((x) => x.id === id); if (!t) return;
+      setTasks((ts) => ts.map((x) => (x.id === id ? Object.assign({}, x, patch) : x)));       // optimistic
+      if (patch.notes && patch.notes.length > t.notes.length) {
+        patch.notes.slice(t.notes.length).forEach((n) => track(() => D.addNote(sb, orgId, t.uuid, n.text)).catch((e) => actions.toast("Note not saved: " + e.message)));
+      }
+      const rest = Object.assign({}, patch); delete rest.notes; delete rest.resolvedAt;
+      if (!Object.keys(rest).length) return;
+      const p = pending.current[id] || { uuid: t.uuid, patch: {} };
+      Object.assign(p.patch, rest); clearTimeout(p.timer); pending.current[id] = p;
+      if (Object.keys(rest).every((k) => TEXT_FIELDS.includes(k))) p.timer = setTimeout(() => flush(id), 700);
+      else flush(id);
+    },
+    deleteTask: (id) => track(async () => { const t = tasks.find((x) => x.id === id); await D.deleteTask(sb, t.uuid); await reload(); }),
+    importRecords: (recs) => track(async () => { await D.importRecords(sb, wsRef.current, recs, "overwrite"); await reload(); }),
+    clearImports: () => {},
+    updateSettings: (patch) => track(async () => { await D.updateSettings(sb, orgId, patch); await reload(); }),
+    saveSite: (form) => track(async () => {
+      const row = await D.saveSite(sb, orgId, form);
+      await D.analyze(sb, orgId, [row.id]);
+      await reload();
+    }),
+    syncNow: (connectionId) => track(async () => { const r = await D.syncConnection(sb, connectionId); await reload(); return r; }),
+    addMember: (email, role) => track(async () => { const r = await sb.rpc("add_member_by_email", { p_org: orgId, p_email: email, p_role: role }); if (r.error) throw new Error(r.error.message); await reload(); }),
+    switchOrg: actions.switchOrg, newOrganization: actions.newOrganization, signOut: actions.signOut,
+  };
+}
+
+// ---------------------------------------------------------------- Workspace (the v1 dashboard, store-agnostic)
+function Workspace({ store, toast, toasts, header }) {
+  const [route, setRoute] = useState(readHash);
+  const [modal, setModal] = useState(null);
+  useEffect(() => { const f = () => setRoute(readHash()); window.addEventListener("hashchange", f); return () => window.removeEventListener("hashchange", f); }, []);
+  const { records, tasks, settings, periodDays, endDate } = store;
+  const R = useMemo(() => C.compute({ records, tasks, settings, periodDays, endDate, sites: store.sites }), [records, tasks, settings, periodDays, endDate, store.sites]);
+  const go = (view, siteId) => { const h = view === "site" ? "site-" + siteId : view; if (location.hash !== "#" + h) location.hash = h; else setRoute(readHash()); document.querySelector(".content") && (document.querySelector(".content").scrollTop = 0); };
+  const openCreate = (siteId, anomalyId) => setModal({ type: "create", siteId, anomalyId });
+  const openTask = (id) => setModal({ type: "task", id });
+  const close = useCallback(() => setModal(null), []);
+  const createTask = async (data) => {
+    try {
+      const r = await store.createTask(data);
+      if (r.existingId) { toast(`${r.existingId} already covers this anomaly. Opened it instead of creating a duplicate.`); setModal({ type: "task", id: r.existingId }); return; }
+      toast(`${r.id} created${data.anomalyId ? " and linked to the anomaly" : ""}.`);
+      setModal({ type: "task", id: r.id });
+    } catch (e) { toast("Could not create the investigation: " + e.message); }
+  };
+  const reopenTask = (id) => { store.updateTask(id, { status: "Open", resolvedAt: null }); setModal({ type: "task", id }); toast(`${id} reopened.`); };
+  const deleteTask = async (id) => { try { await store.deleteTask(id); setModal(null); toast(`${id} deleted.`); } catch (e) { toast("Could not delete: " + e.message); } };
+  const doImport = async (recs, skipped) => {
+    try { await store.importRecords(recs); setModal(null); toast(`Imported ${recs.length} row${recs.length === 1 ? "" : "s"}${skipped ? `, skipped ${skipped} existing` : ""}. ${store.mode === "cloud" ? "Saved and re-analyzed on the server." : "Metrics recalculated."}`); }
+    catch (e) { toast("Import failed: " + e.message); }
+  };
+  const title = route.view === "site" ? (R.perSite[route.siteId] ? R.perSite[route.siteId].site.name : "Site") : route.view === "maintenance" ? "Maintenance Operations" : "Portfolio Command Center";
+  const sitesOrdered = Object.values(R.perSite).sort((a, b) => (a.rank || 99) - (b.rank || 99) || a.site.id.localeCompare(b.site.id));
+  const currentTask = modal && modal.type === "task" ? tasks.find((t) => t.id === modal.id) : null;
+  const cloud = store.mode === "cloud";
+  const badge = !cloud ? { text: "Demo mode: synthetic data", tip: "All sites, production figures and the baseline are synthetic. Imported CSV rows are the only non-synthetic data." }
+    : store.org.is_demo ? { text: "Demo organization: synthetic data (mock connector)", tip: "This organization is flagged as a demo. The database only accepts synthetic or mock data here and never mixes it with customer organizations." }
+    : null;
+  const noSites = store.sites.length === 0;
+  return (
+    <TeamCtx.Provider value={store.team}>
+      <div className="app">
+        <aside className="rail">
+          <div className="brand"><div className="mark"><span style={{ color: "#fff", display: "flex" }}><Icon name="sun" /></span></div><div className="word">Solar<span>Ops</span></div></div>
+          <nav className="nav" aria-label="Main">
+            <button aria-current={route.view === "portfolio" ? "page" : undefined} onClick={() => go("portfolio")}><Icon name="grid" />Portfolio{R.ranked.length > 0 && <span className="count">{R.ranked.length}</span>}</button>
+            <button aria-current={route.view === "maintenance" ? "page" : undefined} onClick={() => go("maintenance")}><Icon name="wrench" />Maintenance{R.openTasks > 0 && <span className="count">{R.openTasks}</span>}</button>
+            <div className="eyebrow nav-sites-label" style={{ padding: "10px 10px 4px" }}>Sites</div>
+            <div className="nav-sites">
+              {sitesOrdered.map((p) => <button key={p.site.id} aria-current={route.view === "site" && route.siteId === p.site.id ? "page" : undefined} onClick={() => go("site", p.site.id)}><span className={"dot " + STATUS_TONE[p.status.status]} />{p.site.name}{p.rank && <span className="count">#{p.rank}</span>}</button>)}
+            </div>
+          </nav>
+          <div className="spacer" />
+          {cloud && <div className="org-chip" title={`Signed in as ${store.email}`}><div className="eyebrow">Organization</div><div className="cell-title">{store.org.name}</div><div className="small faint">{store.role} · {store.email}</div></div>}
+          {badge && <div className="demo-badge" title={badge.tip}>{badge.text}</div>}
+          {header}
+        </aside>
+        <main className="main">
+          <header className="topbar">
+            <div className="crumbs"><h1 style={{ fontSize: "1.05rem" }}>{title}</h1>{route.view === "site" && <span className="faint small">Site intelligence</span>}</div>
+            <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+              {cloud && <span className="small faint" aria-live="polite">{store.saving > 0 ? "Saving…" : "All changes saved"}</span>}
+              <span className="small faint">Window ending {C.fmtDate(endDate)}</span>
+              <div className="seg" role="group" aria-label="Period">{[7, 30, 90].map((n) => <button key={n} aria-pressed={periodDays === n} onClick={() => store.setPeriodDays(n)}>{n}d</button>)}</div>
+              <button className="btn" onClick={() => setModal({ type: "import" })} disabled={noSites}>Import CSV</button>
+              <button className="btn" onClick={() => setModal({ type: "settings" })}>Settings</button>
+            </div>
+          </header>
+          <div className="content">
+            {!store.persistOk && <div className="callout warn small">This browser is blocking local storage. Changes will work but will not survive a refresh.</div>}
+            {store.error && <div className="callout crit small">Could not load from the server: {store.error} <button className="btn sm" onClick={store.reload}>Retry</button></div>}
+            {noSites && <div className="callout info">No sites in {cloud ? store.org.name : "this workspace"} yet. Add your first site under <strong>Settings › Sites</strong>, then import a CSV or connect a monitoring source.</div>}
+            {route.view === "portfolio" && <Portfolio R={R} records={records} tasks={tasks} go={go} openCreate={openCreate} />}
+            {route.view === "site" && <SiteView R={R} siteId={route.siteId} tasks={tasks} go={go} openCreate={openCreate} openTask={openTask} reopenTask={reopenTask} />}
+            {route.view === "maintenance" && <Maintenance R={R} tasks={tasks} go={go} openCreate={openCreate} openTask={openTask} updateTask={store.updateTask} reopenTask={reopenTask} />}
+            <p className="small faint" style={{ marginTop: 28, maxWidth: "72ch" }}>SolarOps v2. Every figure on screen is computed from daily actual and expected kWh with deterministic rules; nothing is predicted or learned. Anomalies flag performance deviations and do not confirm a physical equipment fault. Dollar values are estimates at the rate in Settings, not verified lost or recoverable revenue. {cloud ? (store.org.is_demo ? "This demo organization contains synthetic data only." : "Data shown is your organization's stored data.") : "Demo sites and data are synthetic and do not represent real facilities."}</p>
+          </div>
+        </main>
+        {modal && modal.type === "create" && <CreateDialog R={R} tasks={tasks} siteId={modal.siteId} anomalyId={modal.anomalyId} onClose={close} onCreate={createTask} />}
+        {currentTask && <TaskDrawer task={currentTask} R={R} onClose={close} onUpdate={store.updateTask} onDelete={deleteTask} go={go} />}
+        {modal && modal.type === "import" && <ImportDialog records={records} imports={store.imports} siteIds={store.sites.map((s) => s.id)} sample={store.sample} cloud={cloud} onClose={close} onImport={doImport} onClearImports={() => { store.clearImports(); setModal(null); toast("Imported rows removed. Demo data restored."); }} toast={toast} />}
+        {modal && modal.type === "settings" && <SettingsDialog store={store} onClose={close} toast={toast} />}
+        <Toasts items={toasts} />
+      </div>
+    </TeamCtx.Provider>
+  );
+}
+
+function useToasts() {
+  const [toasts, setToasts] = useState([]);
+  const toast = useCallback((text) => { const id = Date.now() + Math.random(); setToasts((t) => [...t, { id, text }]); setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), 4200); }, []);
+  return [toasts, toast];
+}
+
+function DemoApp({ onSignIn }) {
+  const [toasts, toast] = useToasts();
+  const store = useDemoStore();
+  return <Workspace store={store} toast={toast} toasts={toasts} header={onSignIn ? <button className="btn sm" onClick={onSignIn}>Sign in to SolarOps</button> : null} />;
+}
+
+// ---------------------------------------------------------------- Cloud: auth, onboarding, workspace
+function CenterCard({ children, wide }) {
+  return <div className="auth-wrap"><div className="card auth-card" style={wide ? { maxWidth: 640 } : null}><div className="brand" style={{ marginBottom: 14 }}><div className="mark"><span style={{ color: "#fff", display: "flex" }}><Icon name="sun" /></span></div><div className="word">Solar<span>Ops</span></div></div>{children}</div></div>;
+}
+
+function AuthScreen({ sb, onDemo }) {
+  const [tab, setTab] = useState("signin");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [fullName, setFullName] = useState("");
+  const [msg, setMsg] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const submit = async (e) => {
+    e.preventDefault(); setBusy(true); setMsg(null);
+    try {
+      if (tab === "signin") {
+        const { error } = await sb.auth.signInWithPassword({ email, password });
+        if (error) throw error;
+      } else {
+        const redirect = /^https?:/.test(location.href) ? location.origin + location.pathname : undefined;
+        const { data, error } = await sb.auth.signUp({ email, password, options: { data: { full_name: fullName }, emailRedirectTo: redirect } });
+        if (error) throw error;
+        if (!data.session) setMsg({ tone: "good", text: "Account created. Check your inbox and confirm your email, then sign in here." });
+      }
+    } catch (err) { setMsg({ tone: "crit", text: err.message }); }
+    finally { setBusy(false); }
+  };
+  return (
+    <CenterCard>
+      <div className="tabs" role="tablist" style={{ marginBottom: 14 }}>
+        <button role="tab" aria-selected={tab === "signin"} onClick={() => setTab("signin")}>Sign in</button>
+        <button role="tab" aria-selected={tab === "signup"} onClick={() => setTab("signup")}>Create account</button>
+      </div>
+      <form onSubmit={submit} className="fields">
+        {tab === "signup" && <label className="field">Full name<input type="text" value={fullName} onChange={(e) => setFullName(e.target.value)} autoComplete="name" /></label>}
+        <label className="field">Email<input type="text" inputMode="email" value={email} onChange={(e) => setEmail(e.target.value)} required autoComplete="email" /></label>
+        <label className="field">Password<input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required minLength={8} autoComplete={tab === "signin" ? "current-password" : "new-password"} /></label>
+        {msg && <div className={"callout small " + msg.tone}>{msg.text}</div>}
+        <button className="btn primary" type="submit" disabled={busy} style={{ justifyContent: "center" }}>{busy ? "Please wait…" : tab === "signin" ? "Sign in" : "Create account"}</button>
+      </form>
+      <hr style={{ border: 0, borderTop: "1px solid var(--line)", margin: "16px 0" }} />
+      <button className="btn" style={{ width: "100%", justifyContent: "center" }} onClick={onDemo}>Open the offline demo (synthetic data, no account)</button>
+      <p className="small faint" style={{ marginTop: 10 }}>Signed-in data is stored in SolarOps' Supabase database and isolated per organization by row-level security.</p>
+    </CenterCard>
+  );
+}
+
+function Onboarding({ sb, identity, onDone, onCancel }) {
+  const [name, setName] = useState("");
+  const [busy, setBusy] = useState(null);
+  const [err, setErr] = useState(null);
+  const createReal = async (e) => {
+    e.preventDefault(); setBusy("real"); setErr(null);
+    try { const id = await D.createOrganization(sb, name, false); await D.switchOrganization(sb, identity.user.id, id); onDone(id); }
+    catch (x) { setErr(x.message); setBusy(null); }
+  };
+  const createDemo = async () => {
+    setBusy("demo"); setErr(null);
+    try {
+      const id = await D.createOrganization(sb, "SolarOps Demo (synthetic)", true);
+      await D.switchOrganization(sb, identity.user.id, id);
+      await D.seedDemoOrganization(sb, id, C);
+      onDone(id);
+    } catch (x) { setErr(x.message); setBusy(null); }
+  };
+  return (
+    <CenterCard wide>
+      <h2 style={{ marginBottom: 6 }}>Set up your organization</h2>
+      <p className="small muted" style={{ marginBottom: 14 }}>Everything in SolarOps belongs to an organization. You will be its owner.</p>
+      <form onSubmit={createReal} className="fields">
+        <label className="field">Organization name<input type="text" value={name} onChange={(e) => setName(e.target.value)} required placeholder="e.g. Sunshine Solar O&M" /></label>
+        <button className="btn primary" type="submit" disabled={!!busy} style={{ justifyContent: "center" }}>{busy === "real" ? "Creating…" : "Create organization"}</button>
+      </form>
+      <hr style={{ border: 0, borderTop: "1px solid var(--line)", margin: "16px 0" }} />
+      <div className="fields">
+        <div className="small muted"><strong>Or try the automatic-ingestion demo.</strong> Creates a separate demo organization with the six synthetic Florida sites, connects them to the <strong>mock monitoring connector</strong>, and runs a first 90-day sync through the real backend pipeline (validation, idempotent upsert, server-side analysis). It is labeled as synthetic everywhere and can never mix with real data.</div>
+        <button className="btn" onClick={createDemo} disabled={!!busy} style={{ justifyContent: "center" }}>{busy === "demo" ? "Creating demo and syncing 90 days…" : "Create demo organization"}</button>
+      </div>
+      {err && <div className="callout crit small" style={{ marginTop: 12 }}>{err}</div>}
+      <div className="actions" style={{ marginTop: 12 }}>{onCancel && <button className="btn" onClick={onCancel}>Back</button>}<button className="btn" onClick={() => sb.auth.signOut()}>Sign out</button></div>
+    </CenterCard>
+  );
+}
+
+function CloudApp({ sb, session }) {
+  const [identity, setIdentity] = useState(null);
+  const [orgId, setOrgId] = useState(null);
+  const [onboarding, setOnboarding] = useState(false);
+  const [err, setErr] = useState(null);
+  const [toasts, toast] = useToasts();
+  const refreshIdentity = useCallback(async (preferOrg) => {
+    try {
+      const id = await D.loadIdentity(sb);
+      setIdentity(id);
+      const ids = id.memberships.map((m) => m.organization_id);
+      const pick = [preferOrg, id.profile && id.profile.organization_id, ids[0]].find((x) => x && ids.includes(x)) || null;
+      setOrgId(pick);
+      setOnboarding(!pick);
+    } catch (e) { setErr(e.message); }
+  }, [sb]);
+  useEffect(() => { refreshIdentity(); }, [refreshIdentity, session.user.id]);
+  if (err) return <CenterCard><div className="callout crit">{err}</div><div className="actions" style={{ marginTop: 12 }}><button className="btn" onClick={() => location.reload()}>Retry</button><button className="btn" onClick={() => sb.auth.signOut()}>Sign out</button></div></CenterCard>;
+  if (!identity) return <CenterCard><p className="muted">Loading your organizations…</p></CenterCard>;
+  if (onboarding || !orgId) return <Onboarding sb={sb} identity={identity} onDone={(id) => refreshIdentity(id)} onCancel={orgId ? () => setOnboarding(false) : null} />;
+  const actions = {
+    toast,
+    switchOrg: async (id) => { await D.switchOrganization(sb, identity.user.id, id); location.hash = ""; refreshIdentity(id); },
+    newOrganization: () => setOnboarding(true),
+    signOut: () => sb.auth.signOut(),
+  };
+  return <CloudWorkspace key={orgId} sb={sb} identity={identity} orgId={orgId} actions={actions} toast={toast} toasts={toasts} />;
+}
+
+function CloudWorkspace({ sb, identity, orgId, actions, toast, toasts }) {
+  const store = useCloudStore(sb, identity, orgId, actions);
+  if (!store.ready) return <CenterCard>{store.error ? <><div className="callout crit">Could not load the organization: {store.error}</div><div className="actions" style={{ marginTop: 12 }}><button className="btn" onClick={store.reload}>Retry</button><button className="btn" onClick={actions.signOut}>Sign out</button></div></> : <p className="muted">Loading sites, production history and investigations…</p>}</CenterCard>;
+  return <Workspace store={store} toast={toast} toasts={toasts} />;
+}
+
+// ---------------------------------------------------------------- Root
+const CONFIG = window.SOLAROPS_CONFIG || null;   // { url, publishableKey }: public values only, never a secret key
+function Root() {
+  const sb = useMemo(() => (CONFIG && window.supabase ? window.supabase.createClient(CONFIG.url, CONFIG.publishableKey) : null), []);
+  const [mode, setMode] = useState(() => load("solarops.mode", sb ? "cloud" : "demo"));
+  const [session, setSession] = useState(undefined);
+  useEffect(() => { save("solarops.mode", mode); }, [mode]);
+  useEffect(() => {
+    if (!sb) return;
+    sb.auth.getSession().then(({ data }) => setSession(data.session || null));
+    const { data: sub } = sb.auth.onAuthStateChange((_e, s) => setSession(s || null));
+    return () => sub.subscription.unsubscribe();
+  }, [sb]);
+  if (!sb || mode === "demo") return <DemoApp onSignIn={sb ? () => setMode("cloud") : null} />;
+  if (session === undefined) return <CenterCard><p className="muted">Connecting…</p></CenterCard>;
+  if (!session) return <AuthScreen sb={sb} onDemo={() => setMode("demo")} />;
+  return <CloudApp sb={sb} session={session} />;
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<Root />);
+
+</script>
+
+</body>
+</html>
